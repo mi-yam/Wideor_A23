@@ -18,16 +18,6 @@
 * **UI Controls**: `Fluent.Ribbon` (Officeライクなヘッダー), `MaterialDesignInXamlToolkit` (アイコン等のUI)
 * **Video Engine**: `FFmpeg.AutoGen` または `LibVLCSharp` (高パフォーマンスなサムネイル抽出と再生のため)
 
-### 2.3 ディレクトリ構成
-徹底したMVVM構成のために以下を定義する。
-```text
-/src
-  /Models        ... データ構造 (Scene, TimelineData)
-  /ViewModels    ... 画面ロジック (MainVM, EditorVM)
-  /Views         ... XAML (MainWindow, UserControls)
-  /Services      ... 動画処理, ファイルIO, 解析ロジック
-  /Converters    ... WPF ValueConverters
-  /Resources     ... Styles, Templates
 ````
 
 ---

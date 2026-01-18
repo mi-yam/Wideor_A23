@@ -1,0 +1,112 @@
+<UserControl x:Class="Wideor.App.Shell.ShellRibbon"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:fluent="urn:fluent-ribbon"
+             xmlns:local="clr-namespace:Wideor.App.Shell"
+             mc:Ignorable="d"
+             d:DesignHeight="150" d:DesignWidth="1400">
+    <!-- DataContextはViewModelプロパティから自動的に設定される -->
+
+    <fluent:Ribbon>
+        <!-- ファイルタブ -->
+        <fluent:RibbonTabItem Header="ファイル">
+            <!-- プロジェクトグループ -->
+            <fluent:RibbonGroupBox Header="プロジェクト">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="新規作成"
+                                 Command="{Binding NewProjectCommand}"
+                                 ToolTip="新しいプロジェクトを作成します" />
+                    <fluent:Button Header="開く"
+                                 Command="{Binding OpenProjectCommand}"
+                                 ToolTip="既存のプロジェクトを開きます" />
+                    <fluent:Button Header="保存"
+                                 Command="{Binding SaveProjectCommand}"
+                                 ToolTip="プロジェクトを保存します" />
+                    <fluent:Button Header="名前を付けて保存"
+                                 Command="{Binding SaveAsProjectCommand}"
+                                 ToolTip="プロジェクトを別名で保存します" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+
+            <!-- 出力グループ -->
+            <fluent:RibbonGroupBox Header="出力">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="動画書き出し"
+                                 Command="{Binding ExportVideoCommand}"
+                                 ToolTip="編集した動画を書き出します" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+        </fluent:RibbonTabItem>
+
+        <!-- ホームタブ -->
+        <fluent:RibbonTabItem Header="ホーム">
+            <!-- 編集グループ -->
+            <fluent:RibbonGroupBox Header="編集">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="元に戻す"
+                                 Command="{Binding UndoCommand}"
+                                 ToolTip="直前の操作を元に戻します" />
+                    <fluent:Button Header="やり直し"
+                                 Command="{Binding RedoCommand}"
+                                 ToolTip="元に戻した操作をやり直します" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+
+            <!-- クリップグループ -->
+            <fluent:RibbonGroupBox Header="クリップ">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="切り取り"
+                                 Command="{Binding CutCommand}"
+                                 ToolTip="選択した内容を切り取ります" />
+                    <fluent:Button Header="コピー"
+                                 Command="{Binding CopyCommand}"
+                                 ToolTip="選択した内容をコピーします" />
+                    <fluent:Button Header="貼り付け"
+                                 Command="{Binding PasteCommand}"
+                                 ToolTip="クリップボードの内容を貼り付けます" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+        </fluent:RibbonTabItem>
+
+        <!-- 表示タブ -->
+        <fluent:RibbonTabItem Header="表示">
+            <!-- モードグループ -->
+            <fluent:RibbonGroupBox Header="モード">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:ToggleButton Header="シアターモード"
+                                       Command="{Binding ToggleTheaterModeCommand}"
+                                       ToolTip="シアターモードを切り替えます" />
+                    <fluent:ToggleButton Header="プレビューモード"
+                                       Command="{Binding TogglePreviewModeCommand}"
+                                       ToolTip="プレビューモードを切り替えます" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+
+            <!-- ズームグループ -->
+            <fluent:RibbonGroupBox Header="ズーム">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="拡大"
+                                 Command="{Binding ZoomInCommand}"
+                                 ToolTip="タイムラインを拡大表示します" />
+                    <fluent:Button Header="縮小"
+                                 Command="{Binding ZoomOutCommand}"
+                                 ToolTip="タイムラインを縮小表示します" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+        </fluent:RibbonTabItem>
+
+        <!-- ヘルプタブ -->
+        <fluent:RibbonTabItem Header="ヘルプ">
+            <!-- 情報グループ -->
+            <fluent:RibbonGroupBox Header="情報">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="バージョン情報"
+                                 Command="{Binding ShowVersionInfoCommand}"
+                                 ToolTip="アプリケーションのバージョン情報を表示します" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+        </fluent:RibbonTabItem>
+    </fluent:Ribbon>
+</UserControl>

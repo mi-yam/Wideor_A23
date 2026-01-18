@@ -1,4 +1,5 @@
 using System;
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -145,7 +146,7 @@ namespace Wideor.App.Features.Player
                 .AddTo(_disposables);
 
             // エラー通知を購読
-            var errorMessage = new ReactiveProperty<string?>(null);
+            var errorMessage = new ReactiveProperty<string?>();
             ErrorMessage = errorMessage.ToReadOnlyReactiveProperty()
                 .AddTo(_disposables);
 

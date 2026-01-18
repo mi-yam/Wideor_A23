@@ -1,4 +1,7 @@
 using System;
+using System.Linq;
+using System.Reactive.Disposables;
+using System.Reactive.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using ICSharpCode.AvalonEdit;
@@ -51,6 +54,65 @@ namespace Wideor.App.Features.Editor
         {
             SubscribeToScrollCoordinator();
             SubscribeToTextEditor();
+            SetupTextEditorSelectionColors();
+            SetupAnchorButton();
+        }
+
+        /// <summary>
+        /// AnchorButtonを動的に作成して配置
+        /// </summary>
+        private void SetupAnchorButton()
+        {
+            if (ViewModel == null || AnchorButtonCanvas == null)
+                return;
+
+            var anchorButton = new AnchorButton
+            {
+                Width = 40,
+                Height = 40
+            };
+
+            // バインディングを設定
+            var isPendingBinding = new System.Windows.Data.Binding("IsAnchorPending.Value")
+            {
+                Source = ViewModel
+            };
+            anchorButton.SetBinding(AnchorButton.IsPendingProperty, isPendingBinding);
+
+            var isConfirmedBinding = new System.Windows.Data.Binding("IsAnchorConfirmed.Value")
+            {
+                Source = ViewModel
+            };
+            anchorButton.SetBinding(AnchorButton.IsConfirmedProperty, isConfirmedBinding);
+
+            var clickCommandBinding = new System.Windows.Data.Binding("AnchorClickCommand")
+            {
+                Source = ViewModel
+            };
+            anchorButton.SetBinding(AnchorButton.ClickCommandProperty, clickCommandBinding);
+
+            var toolTipBinding = new System.Windows.Data.Binding("AnchorToolTip.Value")
+            {
+                Source = ViewModel
+            };
+            anchorButton.SetBinding(AnchorButton.ToolTipTextProperty, toolTipBinding);
+
+            // Canvasに配置
+            Canvas.SetLeft(anchorButton, 8);
+            Canvas.SetTop(anchorButton, 8);
+            AnchorButtonCanvas.Children.Add(anchorButton);
+        }
+
+        /// <summary>
+        /// TextEditorの選択色を設定（TextAreaのプロパティを使用）
+        /// </summary>
+        private void SetupTextEditorSelectionColors()
+        {
+            if (TextEditorControl?.TextArea != null)
+            {
+                TextEditorControl.TextArea.SelectionBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3D, 0x5A, 0xFE));
+                TextEditorControl.TextArea.SelectionForeground = System.Windows.Media.Brushes.White;
+            }
         }
 
         private void EditorView_Unloaded(object sender, RoutedEventArgs e)

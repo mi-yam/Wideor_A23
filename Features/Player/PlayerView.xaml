@@ -6,11 +6,15 @@
              xmlns:local="clr-namespace:Wideor.App.Features.Player"
              mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="800">
-    <UserControl.DataContext>
+  <UserControl.DataContext>
         <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
-    </UserControl.DataContext>
-    
-    <Grid Background="Black">
+  </UserControl.DataContext>
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    <local:BooleanToPlayPauseConverter x:Key="PlayPauseConverter" />
+    <local:TimeSpanConverter x:Key="TimeSpanConverter" />
+  </UserControl.Resources>
+  <Grid Background="Black">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -164,11 +168,4 @@
         </Border>
     </Grid>
 
-    <UserControl.Resources>
-        <!-- Play/Pause コンバーター -->
-        <local:BooleanToPlayPauseConverter x:Key="PlayPauseConverter" />
-
-        <!-- TimeSpan コンバーター -->
-        <local:TimeSpanConverter x:Key="TimeSpanConverter" />
-    </UserControl.Resources>
 </UserControl>

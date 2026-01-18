@@ -1,0 +1,76 @@
+<fluent:RibbonWindow x:Class="Wideor.App.Shell.ShellWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:fluent="urn:fluent-ribbon"
+        xmlns:player="clr-namespace:Wideor.App.Features.Player"
+        xmlns:timeline="clr-namespace:Wideor.App.Features.Timeline"
+        xmlns:editor="clr-namespace:Wideor.App.Features.Editor"
+        xmlns:local="clr-namespace:Wideor.App.Shell"
+        mc:Ignorable="d"
+        Title="Wideor" 
+        Height="800" 
+        Width="1400"
+        WindowState="Maximized"
+        Background="#1A1A1A">
+    <fluent:RibbonWindow.DataContext>
+        <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
+    </fluent:RibbonWindow.DataContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- リボン -->
+            <RowDefinition Height="Auto" />
+            <!-- メインコンテンツ -->
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- リボンUI -->
+        <local:ShellRibbon Grid.Row="0"
+                          ViewModel="{Binding}" />
+
+        <!-- メインコンテンツエリア -->
+        <Grid Grid.Row="1">
+        <Grid.ColumnDefinitions>
+            <!-- C1 + C2: Timeline Area (TimeRuler + FilmStrip) -->
+            <ColumnDefinition Width="360" MinWidth="260" />
+            <!-- C3: Link Area (80px) - プレースホルダー -->
+            <ColumnDefinition Width="80" />
+            <!-- C4: Text Area (残り全て) -->
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- C1 + C2: TimelinePage (TimeRuler + FilmStrip) -->
+        <timeline:TimelinePage Grid.Column="0"
+                              ViewModel="{Binding TimelineViewModel}"
+                              BorderBrush="#444444"
+                              BorderThickness="0,0,1,0" />
+
+        <!-- C3: Link Area (プレースホルダー - 将来実装) -->
+        <Border Grid.Column="2"
+                Background="#2A2A2A"
+                BorderBrush="#444444"
+                BorderThickness="0,0,1,0">
+            <TextBlock Text="Link Area"
+                      Foreground="#666666"
+                      FontSize="12"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      TextAlignment="Center" />
+        </Border>
+
+        <!-- C4: EditorView -->
+        <editor:EditorView Grid.Column="3"
+                          ViewModel="{Binding EditorViewModel}" />
+
+        <!-- PlayerView (ZIndex最前面、シアターモード用) -->
+        <player:PlayerView Grid.Column="0"
+                          Grid.ColumnSpan="3"
+                          ViewModel="{Binding PlayerViewModel}"
+                          Panel.ZIndex="100"
+                          Visibility="Collapsed"
+                          x:Name="PlayerViewOverlay" />
+        </Grid>
+    </Grid>
+</fluent:RibbonWindow>

@@ -1,4 +1,5 @@
 using System;
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Reactive.Bindings;
 using Reactive.Bindings.Extensions;
@@ -27,14 +28,14 @@ namespace Wideor.App.Features.Editor
         /// </summary>
         public IReadOnlyReactiveProperty<double?> PivotTime { get; }
 
-        private readonly ReactiveProperty<double?> _pivotTime = new(null);
+        private readonly ReactiveProperty<double?> _pivotTime = new();
 
         /// <summary>
         /// 現在のプレビュー範囲（始点・終点）
         /// </summary>
         public IReadOnlyReactiveProperty<(double Start, double End)?> PreviewRange { get; }
 
-        private readonly ReactiveProperty<(double Start, double End)?> _previewRange = new(null);
+        private readonly ReactiveProperty<(double Start, double End)?> _previewRange = new();
 
         public AnchorLogic()
         {

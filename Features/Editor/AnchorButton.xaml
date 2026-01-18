@@ -5,29 +5,6 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
              d:DesignHeight="40" d:DesignWidth="40">
-    <UserControl.Resources>
-        <!-- 未確定状態のアニメーション -->
-        <Storyboard x:Key="PendingAnimation" RepeatBehavior="Forever">
-            <DoubleAnimation Storyboard.TargetName="PendingEllipse"
-                           Storyboard.TargetProperty="Opacity"
-                           From="0.3" To="1.0" Duration="0:0:1"
-                           AutoReverse="True" />
-        </Storyboard>
-
-        <!-- 確定状態のアニメーション -->
-        <Storyboard x:Key="ConfirmedAnimation">
-            <DoubleAnimation Storyboard.TargetName="ConfirmedEllipse"
-                           Storyboard.TargetProperty="Opacity"
-                           From="0.0" To="1.0" Duration="0:0:0.3" />
-            <ScaleTransform x:Name="ConfirmedScale" ScaleX="1" ScaleY="1" />
-            <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
-                           Storyboard.TargetProperty="ScaleX"
-                           From="0.5" To="1.0" Duration="0:0:0.3" />
-            <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
-                           Storyboard.TargetProperty="ScaleY"
-                           From="0.5" To="1.0" Duration="0:0:0.3" />
-        </Storyboard>
-    </UserControl.Resources>
 
     <Button x:Name="AnchorButtonControl"
             Command="{Binding ClickCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -65,16 +42,35 @@
     <UserControl.Triggers>
         <DataTrigger Binding="{Binding IsPending, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
             <DataTrigger.EnterActions>
-                <BeginStoryboard Storyboard="{StaticResource PendingAnimation}" />
+                <BeginStoryboard Name="PendingAnimationStoryboard">
+                    <Storyboard RepeatBehavior="Forever">
+                        <DoubleAnimation Storyboard.TargetName="PendingEllipse"
+                                       Storyboard.TargetProperty="Opacity"
+                                       From="0.3" To="1.0" Duration="0:0:1"
+                                       AutoReverse="True" />
+                    </Storyboard>
+                </BeginStoryboard>
             </DataTrigger.EnterActions>
             <DataTrigger.ExitActions>
-                <StopStoryboard Storyboard="{StaticResource PendingAnimation}" />
+                <StopStoryboard BeginStoryboardName="PendingAnimationStoryboard" />
             </DataTrigger.ExitActions>
         </DataTrigger>
 
         <DataTrigger Binding="{Binding IsConfirmed, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
             <DataTrigger.EnterActions>
-                <BeginStoryboard Storyboard="{StaticResource ConfirmedAnimation}" />
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="ConfirmedEllipse"
+                                       Storyboard.TargetProperty="Opacity"
+                                       From="0.0" To="1.0" Duration="0:0:0.3" />
+                        <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
+                                       Storyboard.TargetProperty="ScaleX"
+                                       From="0.5" To="1.0" Duration="0:0:0.3" />
+                        <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
+                                       Storyboard.TargetProperty="ScaleY"
+                                       From="0.5" To="1.0" Duration="0:0:0.3" />
+                    </Storyboard>
+                </BeginStoryboard>
             </DataTrigger.EnterActions>
         </DataTrigger>
     </UserControl.Triggers>

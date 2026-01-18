@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -70,7 +71,8 @@ namespace Wideor.App.Features.Timeline
 
             // PixelsPerSecondまたはTotalDurationが変更されたら目盛りを更新
             _subscription = ViewModel.PixelsPerSecond
-                .CombineLatest(ViewModel.TotalDuration, (pps, duration) => new { PPS = pps, Duration = duration })
+                .AsObservable()
+                .CombineLatest(ViewModel.TotalDuration.AsObservable(), (pps, duration) => new { PPS = pps, Duration = duration })
                 .Subscribe(_ => UpdateRuler());
         }
 

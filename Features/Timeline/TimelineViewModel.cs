@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -114,7 +115,7 @@ namespace Wideor.App.Features.Timeline
             ThumbnailItems = new ReadOnlyObservableCollection<ThumbnailItem>(_thumbnailItems);
 
             // プロパティの初期化
-            VideoFilePath = new ReactiveProperty<string?>(null)
+            VideoFilePath = new ReactiveProperty<string?>()
                 .AddTo(_disposables);
 
             TotalDuration = new ReactiveProperty<double>(0.0)
@@ -164,7 +165,7 @@ namespace Wideor.App.Features.Timeline
             PixelsPerSecond
                 .Skip(1) // 初期値はスキップ
                 .Throttle(TimeSpan.FromMilliseconds(500)) // ズーム操作中の頻繁な更新を抑制
-                .Subscribe(_ => _ = GenerateThumbnailsAsync())
+                .Subscribe(_ => { GenerateThumbnailsAsync(); })
                 .AddTo(_disposables);
         }
 

@@ -20,21 +20,9 @@
                           SyntaxHighlighting="C#"
                           Background="#1A1A1A"
                           Foreground="#E0E0E0"
-                          SelectionBrush="#3D5AFE"
-                          SelectionForeground="White"
                           LineNumbersForeground="#888888" />
 
         <!-- 左端にAnchorButtonをオーバーレイ配置 -->
-        <Canvas>
-            <local:AnchorButton x:Name="AnchorButtonControl"
-                               Canvas.Left="8"
-                               Canvas.Top="8"
-                               Width="40"
-                               Height="40"
-                               IsPending="{Binding IsAnchorPending.Value}"
-                               IsConfirmed="{Binding IsAnchorConfirmed.Value}"
-                               ClickCommand="{Binding AnchorClickCommand}"
-                               ToolTipText="{Binding AnchorToolTip.Value}" />
-        </Canvas>
+        <Canvas x:Name="AnchorButtonCanvas" />
     </Grid>
 </UserControl>
