@@ -4,6 +4,7 @@ using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Reactive.Bindings;
 using System.Collections.ObjectModel;
+using LibVLCSharp.Shared;
 using Wideor.App.Features.Editor;
 using Wideor.App.Features.Player;
 using Wideor.App.Features.Timeline;
@@ -24,6 +25,9 @@ namespace Wideor_A23
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+            // LibVLCの初期化（VideoEngineの前に実行）
+            LibVLCSharp.Shared.Core.Initialize();
 
             // DIコンテナのセットアップ
             var services = new ServiceCollection();
@@ -59,7 +63,7 @@ namespace Wideor_A23
             services.AddSingleton<IThumbnailProvider, StubThumbnailProvider>();
 
             // IVideoEngine
-            services.AddSingleton<IVideoEngine, StubVideoEngine>();
+            services.AddSingleton<IVideoEngine, Wideor.App.Shared.Infra.VideoEngine>();
 
             // --- Feature ViewModels ---
             // 注: ViewModelは通常、Viewごとに新しいインスタンスが必要なためTransientまたはScoped
