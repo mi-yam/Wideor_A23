@@ -1,0 +1,81 @@
+<UserControl x:Class="Wideor.App.Features.Editor.AnchorButton"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="40" d:DesignWidth="40">
+    <UserControl.Resources>
+        <!-- 未確定状態のアニメーション -->
+        <Storyboard x:Key="PendingAnimation" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="PendingEllipse"
+                           Storyboard.TargetProperty="Opacity"
+                           From="0.3" To="1.0" Duration="0:0:1"
+                           AutoReverse="True" />
+        </Storyboard>
+
+        <!-- 確定状態のアニメーション -->
+        <Storyboard x:Key="ConfirmedAnimation">
+            <DoubleAnimation Storyboard.TargetName="ConfirmedEllipse"
+                           Storyboard.TargetProperty="Opacity"
+                           From="0.0" To="1.0" Duration="0:0:0.3" />
+            <ScaleTransform x:Name="ConfirmedScale" ScaleX="1" ScaleY="1" />
+            <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
+                           Storyboard.TargetProperty="ScaleX"
+                           From="0.5" To="1.0" Duration="0:0:0.3" />
+            <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
+                           Storyboard.TargetProperty="ScaleY"
+                           From="0.5" To="1.0" Duration="0:0:0.3" />
+        </Storyboard>
+    </UserControl.Resources>
+
+    <Button x:Name="AnchorButtonControl"
+            Command="{Binding ClickCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+            Background="Transparent"
+            BorderThickness="0"
+            Padding="0"
+            Cursor="Hand"
+            ToolTip="{Binding ToolTipText, RelativeSource={RelativeSource AncestorType=UserControl}}">
+        <Grid Width="32" Height="32">
+            <!-- 未確定状態（点滅アニメーション） -->
+            <Ellipse x:Name="PendingEllipse"
+                    Fill="#FF6B6B"
+                    Opacity="0.5"
+                    Visibility="{Binding IsPending, Converter={StaticResource BooleanToVisibilityConverter}, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+
+            <!-- 確定状態 -->
+            <Ellipse x:Name="ConfirmedEllipse"
+                    Fill="#4ECDC4"
+                    Opacity="0"
+                    Visibility="{Binding IsConfirmed, Converter={StaticResource BooleanToVisibilityConverter}, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Ellipse.RenderTransform>
+                    <ScaleTransform x:Name="ConfirmedScale" ScaleX="1" ScaleY="1" />
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <!-- アイコン（アンカー） -->
+            <TextBlock Text="⚓"
+                      FontSize="18"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Foreground="White" />
+        </Grid>
+    </Button>
+
+    <UserControl.Triggers>
+        <DataTrigger Binding="{Binding IsPending, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+            <DataTrigger.EnterActions>
+                <BeginStoryboard Storyboard="{StaticResource PendingAnimation}" />
+            </DataTrigger.EnterActions>
+            <DataTrigger.ExitActions>
+                <StopStoryboard Storyboard="{StaticResource PendingAnimation}" />
+            </DataTrigger.ExitActions>
+        </DataTrigger>
+
+        <DataTrigger Binding="{Binding IsConfirmed, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+            <DataTrigger.EnterActions>
+                <BeginStoryboard Storyboard="{StaticResource ConfirmedAnimation}" />
+            </DataTrigger.EnterActions>
+        </DataTrigger>
+    </UserControl.Triggers>
+</UserControl>

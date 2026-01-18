@@ -1,0 +1,271 @@
+/* * WIDEOR PROFESSIONAL INTERFACE DEFINITIONS
+ * Target: .NET 8.0 / C# 12.0
+ * Dependencies: System.Reactive (NuGet)
+ */
+
+// ===========================================================================
+// 1. DOMAIN MODELS (Immutable Records)
+// File: src/Wideor.Core/Models/SceneBlock.cs
+// ===========================================================================
+namespace Wideor.Core.Models
+{
+    using System;
+
+    /// <summary>
+    /// 動画の1シーンを表す不変レコード。
+    /// 値の変更が必要な場合は with 式を使用して新しいインスタンスを生成する。
+    /// </summary>
+    public record SceneBlock(
+        TimeSpan StartTime,
+        TimeSpan EndTime,
+        string Content,
+        bool IsActive
+    )
+    {
+        public TimeSpan Duration => EndTime - StartTime;
+
+        /// <summary>
+        /// Null Object Pattern 用の空インスタンス
+        /// </summary>
+        public static SceneBlock Empty => new(TimeSpan.Zero, TimeSpan.Zero, string.Empty, false);
+    }
+}
+
+// ===========================================================================
+// 2. STATE MANAGEMENT (Reactive Source of Truth)
+// File: src/Wideor.Core/Interfaces/State/IProjectContext.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.State
+{
+    using System;
+    using System.Collections.Generic;
+    using Wideor.Core.Models;
+
+    /// <summary>
+    /// アプリケーションの単一の真実（Single Source of Truth）。
+    /// 状態の変更はストリームとして通知される。
+    /// </summary>
+    public interface IProjectContext
+    {
+        // --- State Streams (Read) ---
+
+        /// <summary>
+        /// 現在のシーンリストのストリーム（初期値 + 変更通知）。
+        /// ViewModelはこのストリームを ToReadOnlyReactiveProperty() してバインドする。
+        /// </summary>
+        IObservable<IReadOnlyList<SceneBlock>> Scenes { get; }
+
+        /// <summary>
+        /// プロジェクトファイルのパス
+        /// </summary>
+        IObservable<string> ProjectFilePath { get; }
+
+        /// <summary>
+        /// 未保存の変更があるかどうか
+        /// </summary>
+        IObservable<bool> IsDirty { get; }
+
+
+        // --- Mutations (Write) ---
+
+        /// <summary>
+        /// プロジェクト全体を初期化する
+        /// </summary>
+        void Initialize(string projectPath, string videoPath, IEnumerable<SceneBlock> initialScenes);
+
+        /// <summary>
+        /// シーンリストをアトミックに更新する（ParserやEditorからの反映用）
+        /// </summary>
+        void UpdateScenes(IEnumerable<SceneBlock> newScenes);
+
+        /// <summary>
+        /// 保存完了を通知し、IsDirtyフラグを下ろす
+        /// </summary>
+        void MarkAsSaved();
+    }
+}
+
+// ===========================================================================
+// 3. INFRASTRUCTURE (Async & Rx)
+// File: src/Wideor.Core/Interfaces/Services/IVideoEngine.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.Services
+{
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+
+    public enum MediaErrorType
+    {
+        Unknown,
+        FileNotFound,
+        FormatNotSupported,
+        CodecMissing,
+        DecodeError
+    }
+
+    public record MediaError(MediaErrorType Type, string Message, Exception? InnerException = null);
+
+    /// <summary>
+    /// 動画再生エンジンの抽象化。
+    /// プロパティ変更やイベントは全て IObservable で通知する。
+    /// </summary>
+    public interface IVideoEngine : IDisposable
+    {
+        // --- Reactive Properties ---
+        IObservable<bool> IsPlaying { get; }
+        IObservable<TimeSpan> CurrentPosition { get; }
+        IObservable<TimeSpan> Duration { get; }
+        IObservable<double> Volume { get; }      // 0.0 - 1.0
+        IObservable<bool> IsMuted { get; }
+        
+        // エラー通知ストリーム
+        IObservable<MediaError> Errors { get; }
+
+        // --- Operations (Async) ---
+        // 重い処理には必ず CancellationToken を要求する
+        
+        Task LoadAsync(string filePath, CancellationToken cancellationToken = default);
+        Task PlayAsync();
+        Task PauseAsync();
+        Task SeekAsync(TimeSpan position, CancellationToken cancellationToken = default);
+        
+        void SetVolume(double volume);
+        void SetMute(bool isMuted);
+        void SetPlaybackRate(double rate);
+    }
+}
+
+// ===========================================================================
+// File: src/Wideor.Core/Interfaces/Services/IThumbnailProvider.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.Services
+{
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+
+    public record ThumbnailResult(
+        byte[] Data, 
+        int Width, 
+        int Height, 
+        TimeSpan Timestamp
+    );
+
+    public interface IThumbnailProvider
+    {
+        /// <summary>
+        /// サムネイル画像を非同期で生成する。
+        /// 高速スクロール時のキャンセル処理は必須。
+        /// </summary>
+        Task<ThumbnailResult> GetThumbnailAsync(TimeSpan time, int width, CancellationToken cancellationToken);
+    }
+}
+
+// ===========================================================================
+// 4. PURE LOGIC (Domain Services)
+// File: src/Wideor.Core/Interfaces/Logic/ISceneParser.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.Logic
+{
+    using System;
+    using System.Collections.Generic;
+    using Wideor.Core.Models;
+
+    public interface ISceneParser
+    {
+        /// <summary>
+        /// テキスト全文を解析し、不変のシーンリストを生成する純粋関数。
+        /// </summary>
+        IReadOnlyList<SceneBlock> Parse(string fullText);
+
+        /// <summary>
+        /// 指定行がコマンド行か判定
+        /// </summary>
+        bool IsCommandLine(string lineText);
+
+        /// <summary>
+        /// 時間範囲から正規化されたコマンド文字列を生成
+        /// </summary>
+        string GenerateCommandText(TimeSpan start, TimeSpan end);
+    }
+}
+
+// ===========================================================================
+// File: src/Wideor.Core/Interfaces/Logic/ISmartAnchorLogic.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.Logic
+{
+    using System;
+
+    /// <summary>
+    /// クリップ作成時のステートマシン（Twin Trigger Logic）
+    /// </summary>
+    public interface ISmartAnchorLogic
+    {
+        IObservable<bool> IsRecording { get; }
+        IObservable<TimeSpan?> PivotTime { get; }
+
+        void SetPivot(TimeSpan currentTime);
+        
+        /// <summary>
+        /// 現在地に基づき、帯の表示範囲（始点・終点）を計算する
+        /// </summary>
+        (TimeSpan Start, TimeSpan End) CalculatePreviewRange(TimeSpan currentTime);
+
+        /// <summary>
+        /// 確定処理。PivotTimeのリセットも含む。
+        /// </summary>
+        (TimeSpan Start, TimeSpan End) Confirm(TimeSpan currentTime);
+        
+        void Cancel();
+    }
+}
+
+// ===========================================================================
+// 5. UI COORDINATION (Services)
+// File: src/Wideor.Core/Interfaces/Services/IScrollCoordinator.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.Services
+{
+    using System;
+
+    /// <summary>
+    /// 4カラム同期スクロールの管理者。
+    /// UI層の各ViewModelがこのストリームを購読して位置を合わせる。
+    /// </summary>
+    public interface IScrollCoordinator
+    {
+        /// <summary>
+        /// 現在のスクロールオフセット（ピクセル）
+        /// </summary>
+        IObservable<double> CurrentScrollOffset { get; }
+
+        /// <summary>
+        /// 外部からのスクロール要求（動画再生、アンカー移動など）
+        /// </summary>
+        void RequestScrollTo(double offset);
+    }
+}
+
+// ===========================================================================
+// File: src/Wideor.Core/Interfaces/Services/ITimeRulerService.cs
+// ===========================================================================
+namespace Wideor.Core.Interfaces.Services
+{
+    using System;
+
+    /// <summary>
+    /// 時間と座標の相互変換ロジック
+    /// </summary>
+    public interface ITimeRulerService
+    {
+        IObservable<double> PixelsPerSecond { get; }
+        
+        void SetZoomLevel(double pixelsPerSecond);
+
+        // 厳密な座標計算（double精度）
+        double TimeToY(TimeSpan time);
+        TimeSpan YToTime(double y);
+    }
+}
