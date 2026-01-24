@@ -71,6 +71,30 @@ namespace Wideor.App.Features.Timeline
             InitializeComponent();
             DataContextChanged += TimelinePage_DataContextChanged;
             Loaded += TimelinePage_Loaded;
+            
+            // マウスホイールイベントを購読
+            MouseWheel += TimelinePage_MouseWheel;
+        }
+        
+        private void TimelinePage_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            // Ctrlキーが押されている場合のみズーム
+            if (System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
+            {
+                if (ViewModel != null)
+                {
+                    var currentZoom = ViewModel.PixelsPerSecond.Value;
+                    var zoomFactor = e.Delta > 0 ? 1.2 : 1.0 / 1.2; // ホイール上で拡大、下で縮小
+                    var newZoom = currentZoom * zoomFactor;
+                    
+                    // ズームレベルの範囲を制限（10～1000 px/s）
+                    newZoom = System.Math.Max(10, System.Math.Min(1000, newZoom));
+                    
+                    ViewModel.SetZoomLevel(newZoom);
+                    
+                    e.Handled = true; // イベントを処理済みとしてマーク
+                }
+            }
         }
 
         private void TimelinePage_Loaded(object sender, RoutedEventArgs e)

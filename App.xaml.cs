@@ -406,7 +406,7 @@ namespace Wideor_A23
 
         public Reactive.Bindings.IReadOnlyReactiveProperty<double> PixelsPerSecond => _pixelsPerSecond;
 
-        public void SetZoomLevel(double pixelsPerSecond) => _pixelsPerSecond.Value = Math.Max(10, pixelsPerSecond);
+        public void SetZoomLevel(double pixelsPerSecond) => _pixelsPerSecond.Value = Math.Max(10, Math.Min(1000, pixelsPerSecond));
 
         public double TimeToY(double time) => time * _pixelsPerSecond.Value;
 

@@ -75,6 +75,16 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         public ReactiveProperty<int> ThumbnailHeight { get; }
 
+        /// <summary>
+        /// 動画のフレームレート（fps）
+        /// </summary>
+        public ReactiveProperty<double> VideoFrameRate { get; }
+
+        /// <summary>
+        /// 表示フレームレート（fps）- タイムラインに表示するフレームレート
+        /// </summary>
+        public ReactiveProperty<double> DisplayFrameRate { get; }
+
         // --- Commands ---
 
         /// <summary>
@@ -86,6 +96,11 @@ namespace Wideor.App.Features.Timeline
         /// ズームアウトコマンド
         /// </summary>
         public ReactiveCommand ZoomOutCommand { get; }
+
+        /// <summary>
+        /// ズームリセットコマンド（デフォルトズームレベルに戻す）
+        /// </summary>
+        public ReactiveCommand ZoomResetCommand { get; }
 
         /// <summary>
         /// サムネイルを生成するコマンド
@@ -136,6 +151,12 @@ namespace Wideor.App.Features.Timeline
                 .AddTo(_disposables);
 
             ThumbnailHeight = new ReactiveProperty<int>(90)
+                .AddTo(_disposables);
+
+            VideoFrameRate = new ReactiveProperty<double>(30.0) // デフォルト: 30fps
+                .AddTo(_disposables);
+
+            DisplayFrameRate = new ReactiveProperty<double>(1.0) // デフォルト: 1fps（1秒に1フレーム表示）
                 .AddTo(_disposables);
 
             // 総高さの計算（TotalDuration × PixelsPerSecond）
@@ -210,6 +231,9 @@ namespace Wideor.App.Features.Timeline
                     var current = PixelsPerSecond.Value;
                     var newZoom = current / 1.5;
                     
+                    // ズームレベルの範囲を制限（10～1000 px/s）
+                    newZoom = Math.Max(10, Math.Min(1000, newZoom));
+                    
                     // #region agent log
                     try
                     {
@@ -236,6 +260,36 @@ namespace Wideor.App.Features.Timeline
                 })
                 .AddTo(_disposables);
 
+            ZoomResetCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // #region agent log
+                    try
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimelineViewModel.cs:ZoomResetCommand",
+                            "ZoomResetCommand executed",
+                            new { currentPixelsPerSecond = PixelsPerSecond.Value });
+                    }
+                    catch { }
+                    // #endregion
+                    
+                    // デフォルトズームレベル（100 px/s）にリセット
+                    _timeRulerService.SetZoomLevel(100.0);
+                    
+                    // #region agent log
+                    try
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimelineViewModel.cs:ZoomResetCommand",
+                            "Zoom reset completed",
+                            new { pixelsPerSecond = PixelsPerSecond.Value });
+                    }
+                    catch { }
+                    // #endregion
+                })
+                .AddTo(_disposables);
+
             GenerateThumbnailsCommand = VideoFilePath
                 .Select(path => !string.IsNullOrEmpty(path))
                 .ToReactiveCommand()
@@ -255,91 +309,60 @@ namespace Wideor.App.Features.Timeline
                 })
                 .AddTo(_disposables);
 
-            // PixelsPerSecondが変更されたら、サムネイルを再生成
+            // PixelsPerSecondまたはDisplayFrameRateが変更されたら、サムネイルを再生成（最適化版）
             PixelsPerSecond
                 .Skip(1) // 初期値はスキップ
-                .Throttle(TimeSpan.FromMilliseconds(1000)) // ズーム操作が完了してから1秒後に生成
+                .Throttle(TimeSpan.FromMilliseconds(500)) // ズーム操作が完了してから500ms後に生成（高速化）
                 .Where(_ => !_isGeneratingThumbnails) // 既に生成中の場合はスキップ
                 .Subscribe(async _ =>
                 {
-                    // 既に生成中の場合はスキップ
-                    if (_isGeneratingThumbnails)
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:PixelsPerSecond.Subscribe",
-                                "Skipping thumbnail generation (already in progress)",
-                                new { pixelsPerSecond = PixelsPerSecond.Value });
-                        }
-                        catch { }
-                        // #endregion
-                        return;
-                    }
-                    
-                    try
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:PixelsPerSecond.Subscribe",
-                                "PixelsPerSecond changed, calling GenerateThumbnailsAsync",
-                                new { pixelsPerSecond = PixelsPerSecond.Value });
-                        }
-                        catch { }
-                        // #endregion
-                        
-                        // asyncメソッドの例外を確実にキャッチするため、try-catchで囲む
-                        try
-                        {
-                            await GenerateThumbnailsAsync();
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:PixelsPerSecond.Subscribe",
-                                    "GenerateThumbnailsAsync cancelled",
-                                    null);
-                            }
-                            catch { }
-                            // #endregion
-                            // キャンセルされた場合は何もしない
-                        }
-                        catch (Exception ex)
-                        {
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:PixelsPerSecond.Subscribe",
-                                    "Exception in GenerateThumbnailsAsync",
-                                    new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace, innerException = ex.InnerException?.ToString() });
-                            }
-                            catch { }
-                            // #endregion
-                            // 例外を再スローしない（UIをクラッシュさせないため）
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:PixelsPerSecond.Subscribe",
-                                "Exception in Subscribe",
-                                new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
-                        }
-                        catch { }
-                        // #endregion
-                    }
+                    await RegenerateThumbnailsIfNeeded();
                 })
                 .AddTo(_disposables);
+
+            DisplayFrameRate
+                .Skip(1) // 初期値はスキップ
+                .Throttle(TimeSpan.FromMilliseconds(500)) // 表示fps変更が完了してから500ms後に生成
+                .Where(_ => !_isGeneratingThumbnails) // 既に生成中の場合はスキップ
+                .Subscribe(async _ =>
+                {
+                    await RegenerateThumbnailsIfNeeded();
+                })
+                .AddTo(_disposables);
+        }
+
+        /// <summary>
+        /// サムネイルを再生成する必要がある場合に再生成します
+        /// </summary>
+        private async Task RegenerateThumbnailsIfNeeded()
+        {
+            // 既に生成中の場合はスキップ
+            if (_isGeneratingThumbnails)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(VideoFilePath.Value) || TotalDuration.Value <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await GenerateThumbnailsAsync();
+            }
+            catch (OperationCanceledException)
+            {
+                // キャンセルされた場合は何もしない
+            }
+            catch (Exception ex)
+            {
+                // エラーをログに記録（UIをクラッシュさせないため）
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:RegenerateThumbnailsIfNeeded",
+                    "Exception in RegenerateThumbnailsIfNeeded",
+                    new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+            }
         }
 
         /// <summary>
@@ -363,7 +386,9 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         public void SetZoomLevel(double pixelsPerSecond)
         {
-            _timeRulerService.SetZoomLevel(pixelsPerSecond);
+            // ズームレベルの範囲を制限（10～1000 px/s）
+            var clampedZoom = Math.Max(10, Math.Min(1000, pixelsPerSecond));
+            _timeRulerService.SetZoomLevel(clampedZoom);
         }
 
         /// <summary>
@@ -383,7 +408,7 @@ namespace Wideor.App.Features.Timeline
         }
 
         /// <summary>
-        /// 表示範囲内のThumbnailItemのIsActiveを更新
+        /// 表示範囲内のThumbnailItemのIsActiveを更新（最適化版）
         /// </summary>
         public void UpdateVisibleThumbnailStates(double viewportTop, double viewportBottom, IReadOnlyList<SceneBlock> sceneBlocks)
         {
@@ -396,33 +421,44 @@ namespace Wideor.App.Features.Timeline
                 var topWithMargin = viewportTop - margin;
                 var bottomWithMargin = viewportBottom + margin;
 
-                foreach (var item in _thumbnailItems)
-                {
-                    if (item == null)
-                        continue;
+                // SceneBlocksを時間範囲でソートして、バイナリサーチを可能にする（最適化）
+                var sortedBlocks = sceneBlocks
+                    .Where(block => block != null)
+                    .OrderBy(block => block.StartTime)
+                    .ToList();
 
-                    // YPositionが表示範囲内かチェック（マージンを追加して少し広めに更新）
-                    if (item.YPosition >= topWithMargin && item.YPosition <= bottomWithMargin)
+                // UIスレッドで実行されていることを確認
+                if (!System.Windows.Application.Current.Dispatcher.CheckAccess())
+                {
+                    System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                        UpdateVisibleThumbnailStates(viewportTop, viewportBottom, sceneBlocks));
+                    return;
+                }
+
+                // 表示範囲内のアイテムのみを処理（パフォーマンス向上）
+                // YPositionでソートされていることを前提に、範囲検索を最適化
+                var visibleItems = _thumbnailItems
+                    .Where(item => item != null && item.YPosition >= topWithMargin && item.YPosition <= bottomWithMargin)
+                    .ToList();
+
+                foreach (var item in visibleItems)
+                {
+                    try
                     {
-                        // このアイテムのTimePositionがSceneBlockの範囲内かチェック
-                        var isActive = sceneBlocks.Any(block =>
-                            block != null && item.TimePosition >= block.StartTime && item.TimePosition <= block.EndTime);
+                        // バイナリサーチで該当するSceneBlockを検索（最適化）
+                        var isActive = sortedBlocks.Any(block =>
+                            item.TimePosition >= block.StartTime && item.TimePosition <= block.EndTime);
                         
-                        // UIスレッドで実行されていることを確認
-                        if (System.Windows.Application.Current.Dispatcher.CheckAccess())
+                        // 値が変更された場合のみ更新（不要な通知を避ける）
+                        if (item.IsActive.Value != isActive)
                         {
                             item.IsActive.Value = isActive;
                         }
-                        else
-                        {
-                            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                            {
-                                if (item.IsActive != null)
-                                {
-                                    item.IsActive.Value = isActive;
-                                }
-                            });
-                        }
+                    }
+                    catch (Exception itemEx)
+                    {
+                        // 個別のアイテム更新エラーは無視して続行
+                        System.Diagnostics.Debug.WriteLine($"Error updating item state: {itemEx.Message}");
                     }
                 }
             }
@@ -783,57 +819,56 @@ namespace Wideor.App.Features.Timeline
 
             try
             {
-                var pixelsPerSecond = PixelsPerSecond.Value;
                 var totalDuration = TotalDuration.Value;
+                var pixelsPerSecond = PixelsPerSecond.Value;
 
-                // 連続体のフレームをタイムライン上の高さに合わせて間引く
-                // 1サムネイルあたりの秒数 = サムネイル高さ / PixelsPerSecond
-                var secondsPerThumbnail = pixelsPerSecond > 0
-                    ? ThumbnailHeight.Value / pixelsPerSecond
-                    : 0;
-                var expectedCountByHeight = secondsPerThumbnail > 0
-                    ? (int)Math.Ceiling(totalDuration / secondsPerThumbnail)
-                    : 0;
-
-                // 過剰生成を避けるため上限を設ける（間引き間隔を拡大）
-                const int maxThumbnails = 500;
-                var stride = expectedCountByHeight > maxThumbnails
-                    ? (int)Math.Ceiling((double)expectedCountByHeight / maxThumbnails)
-                    : 1;
-                var intervalSeconds = secondsPerThumbnail > 0
-                    ? secondsPerThumbnail * stride
-                    : 0;
-
+                // ズームレベルに基づいてフレーム間隔を計算
+                // 基準：PixelsPerSecond = 100 → 1秒間隔
+                // ズームイン：PixelsPerSecond = 200 → 0.5秒間隔
+                // ズームアウト：PixelsPerSecond = 50 → 2秒間隔
+                const double basePixelsPerSecond = 100.0; // 基準値（1秒間隔に対応）
+                var timeIntervalSeconds = basePixelsPerSecond / pixelsPerSecond;
+                
                 var timePositions = new List<double>();
-                if (intervalSeconds > 0)
+
+                if (totalDuration > 0 && timeIntervalSeconds > 0)
                 {
-                    for (double t = 0; t <= totalDuration; t += intervalSeconds)
+                    // 過剰生成を避けるため上限を設ける（最大500フレーム）
+                    var expectedCount = (int)Math.Ceiling(totalDuration / timeIntervalSeconds);
+                    const int maxThumbnails = 500;
+                    
+                    if (expectedCount > maxThumbnails)
+                    {
+                        // 間隔を拡大して最大500フレームに制限
+                        var stride = (int)Math.Ceiling((double)expectedCount / maxThumbnails);
+                        timeIntervalSeconds *= stride;
+                    }
+                    
+                    // 時間位置を計算（ズームベース）
+                    for (double t = 0; t <= totalDuration; t += timeIntervalSeconds)
                     {
                         timePositions.Add(t);
                     }
+                    
+                    // #region agent log
+                    try
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
+                            "Calculating thumbnail sampling (zoom-based)",
+                            new
+                            {
+                                pixelsPerSecond,
+                                basePixelsPerSecond,
+                                timeIntervalSeconds,
+                                totalDuration,
+                                expectedCount,
+                                timePositionsCount = timePositions.Count
+                            });
+                    }
+                    catch { }
+                    // #endregion
                 }
-                
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Calculating thumbnail sampling",
-                        new
-                        {
-                            pixelsPerSecond,
-                            totalDuration,
-                            thumbnailHeight = ThumbnailHeight.Value,
-                            secondsPerThumbnail,
-                            expectedCountByHeight,
-                            maxThumbnails,
-                            stride,
-                            intervalSeconds,
-                            timePositionsCount = timePositions.Count
-                        });
-                }
-                catch { }
-                // #endregion
 
                 // 連続体のフレームを一定間隔でサンプリング
                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
@@ -901,44 +936,51 @@ namespace Wideor.App.Features.Timeline
                             catch { }
                             // #endregion
                             
-                            _thumbnailItems.Clear();
+                            // 既存のサムネイルを再利用するための辞書を作成（パフォーマンス最適化）
+                            var existingItemsByTime = _thumbnailItems.ToDictionary(item => item.TimePosition);
                             
-                            // #region agent log
-                            try
+                            // 新しいサムネイルのTimePositionセット
+                            var newTimePositions = new HashSet<double>(thumbnails.Keys);
+                            
+                            // 既存のアイテムで、新しいTimePositionに含まれないものを削除
+                            var itemsToRemove = _thumbnailItems
+                                .Where(item => !newTimePositions.Contains(item.TimePosition))
+                                .ToList();
+                            
+                            foreach (var item in itemsToRemove)
                             {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                    "ThumbnailItems cleared",
-                                    new { currentItemsCount = _thumbnailItems.Count });
+                                _thumbnailItems.Remove(item);
                             }
-                            catch { }
-                            // #endregion
                             
+                            // 新しいサムネイルを追加または更新
                             var addedCount = 0;
+                            var updatedCount = 0;
+                            var currentPixelsPerSecond = PixelsPerSecond.Value;
+                            
                             foreach (var kvp in thumbnails.OrderBy(x => x.Key))
                             {
                                 try
                                 {
                                     var yPosition = TimeToY(kvp.Key);
-                                    var thumbnailItem = new ThumbnailItem
-                                    {
-                                        TimePosition = kvp.Key,
-                                        Thumbnail = kvp.Value,
-                                        YPosition = yPosition
-                                    };
-                                    _thumbnailItems.Add(thumbnailItem);
-                                    addedCount++;
                                     
-                                    // #region agent log
-                                    try
+                                    if (existingItemsByTime.TryGetValue(kvp.Key, out var existingItem))
                                     {
-                                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                            "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                            "Thumbnail item added",
-                                            new { timePosition = kvp.Key, yPosition, pixelsPerSecond = PixelsPerSecond.Value, addedCount });
+                                        // 既存アイテムのYPositionを更新（サムネイルは再利用）
+                                        existingItem.YPosition = yPosition;
+                                        updatedCount++;
                                     }
-                                    catch { }
-                                    // #endregion
+                                    else
+                                    {
+                                        // 新しいアイテムを追加
+                                        var thumbnailItem = new ThumbnailItem
+                                        {
+                                            TimePosition = kvp.Key,
+                                            Thumbnail = kvp.Value,
+                                            YPosition = yPosition
+                                        };
+                                        _thumbnailItems.Add(thumbnailItem);
+                                        addedCount++;
+                                    }
                                 }
                                 catch (Exception addEx)
                                 {
@@ -947,12 +989,20 @@ namespace Wideor.App.Features.Timeline
                                     {
                                         Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                             "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                            "Exception adding thumbnail item",
+                                            "Exception adding/updating thumbnail item",
                                             new { timePosition = kvp.Key, exceptionType = addEx.GetType().Name, message = addEx.Message, stackTrace = addEx.StackTrace });
                                     }
                                     catch { }
                                     // #endregion
                                 }
+                            }
+                            
+                            // YPositionでソート（効率的な表示のため）
+                            var sortedItems = _thumbnailItems.OrderBy(item => item.YPosition).ToList();
+                            _thumbnailItems.Clear();
+                            foreach (var item in sortedItems)
+                            {
+                                _thumbnailItems.Add(item);
                             }
                             
                             // #region agent log
@@ -961,7 +1011,7 @@ namespace Wideor.App.Features.Timeline
                                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                     "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
                                     "ThumbnailItems updated",
-                                    new { addedCount = addedCount, totalCount = _thumbnailItems.Count });
+                                    new { addedCount = addedCount, updatedCount = updatedCount, removedCount = itemsToRemove.Count, totalCount = _thumbnailItems.Count });
                             }
                             catch { }
                             // #endregion

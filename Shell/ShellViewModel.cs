@@ -128,6 +128,11 @@ namespace Wideor.App.Shell
         public ReactiveCommand ZoomOutCommand { get; }
 
         /// <summary>
+        /// ズームリセットコマンド
+        /// </summary>
+        public ReactiveCommand ZoomResetCommand { get; }
+
+        /// <summary>
         /// バージョン情報表示コマンド
         /// </summary>
         public ReactiveCommand ShowVersionInfoCommand { get; }
@@ -370,10 +375,10 @@ namespace Wideor.App.Shell
                                         new { videoFilePath = videoFilePath });
                                     
                                     // TotalDurationが0より大きくなるまで待つ
-                                    var totalDurationSubscription = PlayerViewModel.TotalDuration
+                                    var totalDurationSubscription =                                     PlayerViewModel.TotalDuration
                                         .Where(duration => duration > 0)
                                         .Take(1) // 最初の一回だけ実行
-                                        .Subscribe(totalDuration =>
+                                        .Subscribe(async totalDuration =>
                                         {
                                             Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                                 "ShellViewModel.cs:LoadVideoCommand",
@@ -383,11 +388,46 @@ namespace Wideor.App.Shell
                                             TimelineViewModel.VideoFilePath.Value = videoFilePath;
                                             TimelineViewModel.TotalDuration.Value = totalDuration;
 
+                                            // 動画情報を取得してfpsを設定
+                                            try
+                                            {
+                                                var videoInfo = await PlayerViewModel.GetVideoInfoAsync();
+                                                if (videoInfo != null)
+                                                {
+                                                    TimelineViewModel.VideoFrameRate.Value = videoInfo.FrameRate;
+                                                    
+                                                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                                        "ShellViewModel.cs:LoadVideoCommand",
+                                                        "VideoInfo obtained",
+                                                        new { videoFilePath = videoFilePath, frameRate = videoInfo.FrameRate, width = videoInfo.Width, height = videoInfo.Height });
+                                                }
+                                                else
+                                                {
+                                                    // VideoInfoが取得できない場合はデフォルト値を使用
+                                                    TimelineViewModel.VideoFrameRate.Value = 30.0;
+                                                    
+                                                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                                        "ShellViewModel.cs:LoadVideoCommand",
+                                                        "VideoInfo not available, using default fps",
+                                                        new { videoFilePath = videoFilePath, defaultFps = 30.0 });
+                                                }
+                                            }
+                                            catch (Exception videoInfoEx)
+                                            {
+                                                // VideoInfo取得に失敗した場合はデフォルト値を使用
+                                                TimelineViewModel.VideoFrameRate.Value = 30.0;
+                                                
+                                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                                    "ShellViewModel.cs:LoadVideoCommand",
+                                                    "Exception getting VideoInfo, using default fps",
+                                                    new { videoFilePath = videoFilePath, exceptionType = videoInfoEx.GetType().Name, message = videoInfoEx.Message, defaultFps = 30.0 });
+                                            }
+
                                             // サムネイルを生成
                                             Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                                 "ShellViewModel.cs:LoadVideoCommand",
                                                 "Calling GenerateThumbnailsCommand",
-                                                new { videoFilePath = videoFilePath, totalDuration = totalDuration });
+                                                new { videoFilePath = videoFilePath, totalDuration = totalDuration, videoFps = TimelineViewModel.VideoFrameRate.Value, displayFps = TimelineViewModel.DisplayFrameRate.Value });
                                             
                                             TimelineViewModel.GenerateThumbnailsCommand.Execute();
                                         });
@@ -500,6 +540,14 @@ namespace Wideor.App.Shell
                 {
                     // TimelineViewModelのズームアウトを呼び出す
                     TimelineViewModel.ZoomOutCommand.Execute();
+                })
+                .AddTo(_disposables);
+
+            ZoomResetCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // TimelineViewModelのズームリセットを呼び出す
+                    TimelineViewModel.ZoomResetCommand.Execute();
                 })
                 .AddTo(_disposables);
 

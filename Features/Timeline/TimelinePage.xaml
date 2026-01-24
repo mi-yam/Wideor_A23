@@ -25,17 +25,41 @@
                        Width="40"
                        Height="30"
                        Margin="0,0,4,0"
-                       ToolTip="ズームイン" />
+                       ToolTip="ズームイン (Ctrl + マウスホイール上でも可能)" />
                 <Button Content="🔍-"
                        Command="{Binding ZoomOutCommand}"
                        Width="40"
                        Height="30"
+                       Margin="0,0,4,0"
+                       ToolTip="ズームアウト (Ctrl + マウスホイール下でも可能)" />
+                <Button Content="🔍"
+                       Command="{Binding ZoomResetCommand}"
+                       Width="40"
+                       Height="30"
                        Margin="0,0,8,0"
-                       ToolTip="ズームアウト" />
+                       ToolTip="ズームリセット (100 px/s)" />
                 <TextBlock Text="{Binding PixelsPerSecond.Value, StringFormat='ズーム: {0:F1} px/s'}"
                           Foreground="White"
                           VerticalAlignment="Center"
-                          Margin="8,0,0,0" />
+                          Margin="8,0,8,0" />
+                <TextBlock Text="{Binding VideoFrameRate.Value, StringFormat='動画: {0:F1} fps'}"
+                          Foreground="#AAAAAA"
+                          VerticalAlignment="Center"
+                          Margin="0,0,8,0" />
+                <TextBlock Text="表示:"
+                          Foreground="White"
+                          VerticalAlignment="Center"
+                          Margin="0,0,4,0" />
+                <TextBox Text="{Binding DisplayFrameRate.Value, UpdateSourceTrigger=PropertyChanged}"
+                        Width="50"
+                        Height="25"
+                        VerticalContentAlignment="Center"
+                        Margin="0,0,2,0"
+                        ToolTip="表示フレームレート (fps) - タイムラインに表示するフレームレート" />
+                <TextBlock Text="fps"
+                          Foreground="White"
+                          VerticalAlignment="Center"
+                          Margin="0,0,8,0" />
             </StackPanel>
         </Border>
 

@@ -14,17 +14,30 @@
         <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
     </UserControl.DataContext>
 
-    <ScrollViewer x:Name="FilmStripScrollViewer"
-                  VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled"
-                  Background="#1A1A1A">
-        <ItemsControl ItemsSource="{Binding ThumbnailItems}">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <VirtualizingStackPanel Orientation="Vertical" />
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
+    <!-- ListBoxを使用して仮想化を有効化（パフォーマンス向上） -->
+    <ListBox x:Name="FilmStripListBox"
+             ItemsSource="{Binding ThumbnailItems}"
+             ScrollViewer.VerticalScrollBarVisibility="Auto"
+             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+             Background="#1A1A1A"
+             BorderThickness="0"
+             Padding="0"
+             VirtualizingPanel.IsVirtualizing="True"
+             VirtualizingPanel.VirtualizationMode="Recycling"
+             VirtualizingPanel.ScrollUnit="Pixel"
+             SelectionMode="Extended">
+        <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                <!-- 仮想化時のパフォーマンス向上 -->
+                <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
+            </Style>
+        </ListBox.ItemContainerStyle>
+        <ListBox.ItemTemplate>
                 <DataTemplate DataType="{x:Type local:ThumbnailItem}">
                     <Border Background="#2A2A2A"
                             BorderBrush="#444444"
@@ -82,7 +95,6 @@
                         </Grid>
                     </Border>
                 </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-    </ScrollViewer>
+        </ListBox.ItemTemplate>
+    </ListBox>
 </UserControl>

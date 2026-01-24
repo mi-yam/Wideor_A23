@@ -69,9 +69,10 @@ namespace Wideor.App.Features.Timeline
             SubscribeToScrollCoordinator();
             
             // 初期表示範囲を更新（EditorViewModelが設定されている場合のみ）
-            if (FilmStripScrollViewer != null)
+            var scrollViewer = GetScrollViewer(FilmStripListBox);
+            if (scrollViewer != null)
             {
-                FilmStripScrollViewer.Loaded += (s, args) =>
+                scrollViewer.Loaded += (s, args) =>
                 {
                     // EditorViewModelが設定されている場合のみ更新
                     if (ViewModel?.EditorViewModel != null)
@@ -82,10 +83,37 @@ namespace Wideor.App.Features.Timeline
             }
         }
 
+        /// <summary>
+        /// ListBox内のScrollViewerを取得
+        /// </summary>
+        private static ScrollViewer? GetScrollViewer(DependencyObject depObj)
+        {
+            if (depObj == null) return null;
+
+            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(depObj); i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(depObj, i);
+                if (child is ScrollViewer scrollViewer)
+                {
+                    return scrollViewer;
+                }
+                var childOfChild = GetScrollViewer(child);
+                if (childOfChild != null)
+                {
+                    return childOfChild;
+                }
+            }
+            return null;
+        }
+
         private void FilmStripView_Unloaded(object sender, RoutedEventArgs e)
         {
             _disposables?.Dispose();
             _disposables = null;
+            
+            // タイマーをクリーンアップ
+            _scrollThrottleTimer?.Stop();
+            _scrollThrottleTimer = null;
         }
 
         private void SubscribeToScrollCoordinator()
@@ -96,24 +124,45 @@ namespace Wideor.App.Features.Timeline
             if (ViewModel == null)
                 return;
 
+            // ListBox内のScrollViewerを取得
+            var scrollViewer = GetScrollViewer(FilmStripListBox);
+            if (scrollViewer == null)
+                return;
+
             // ScrollCoordinatorにScrollViewerを登録
-            var registration = ViewModel.ScrollCoordinator.RegisterScrollViewer(FilmStripScrollViewer);
+            var registration = ViewModel.ScrollCoordinator.RegisterScrollViewer(scrollViewer);
             _disposables.Add(registration);
 
-            // スクロール位置の変更を購読してScrollViewerを更新
+            // スクロール位置の変更を購読してScrollViewerを更新（スロットル付き、UIスレッドで実行）
             ViewModel.ScrollPosition
+                .Throttle(TimeSpan.FromMilliseconds(16)) // 60fps相当の更新レート
                 .Subscribe(position =>
                 {
-                    if (FilmStripScrollViewer != null && FilmStripScrollViewer.ScrollableHeight > 0)
+                    // UIスレッドで実行されることを保証
+                    if (Dispatcher.CheckAccess())
                     {
-                        var offset = position * FilmStripScrollViewer.ScrollableHeight;
-                        FilmStripScrollViewer.ScrollToVerticalOffset(offset);
+                        if (scrollViewer != null && scrollViewer.ScrollableHeight > 0)
+                        {
+                            var offset = position * scrollViewer.ScrollableHeight;
+                            scrollViewer.ScrollToVerticalOffset(offset);
+                        }
+                    }
+                    else
+                    {
+                        Dispatcher.InvokeAsync(() =>
+                        {
+                            if (scrollViewer != null && scrollViewer.ScrollableHeight > 0)
+                            {
+                                var offset = position * scrollViewer.ScrollableHeight;
+                                scrollViewer.ScrollToVerticalOffset(offset);
+                            }
+                        }, DispatcherPriority.Normal);
                     }
                 })
                 .AddTo(_disposables);
 
-            // スクロールイベントを監視して表示範囲を更新
-            FilmStripScrollViewer.ScrollChanged += FilmStripScrollViewer_ScrollChanged;
+            // スクロールイベントを監視して表示範囲を更新（スロットル付き）
+            scrollViewer.ScrollChanged += FilmStripScrollViewer_ScrollChanged;
             
             // EditorViewModelのSceneBlocksが変更されたら表示範囲を更新
             SubscribeToEditorViewModel();
@@ -142,14 +191,32 @@ namespace Wideor.App.Features.Timeline
                 .AddTo(_disposables);
         }
 
+        private System.Windows.Threading.DispatcherTimer? _scrollThrottleTimer;
+
         private void FilmStripScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
             try
             {
-                if (ViewModel == null || FilmStripScrollViewer == null)
+                if (ViewModel == null)
                     return;
 
-                UpdateVisibleThumbnailStates();
+                // スクロールイベントをスロットル（100ms間隔で更新）
+                if (_scrollThrottleTimer == null)
+                {
+                    _scrollThrottleTimer = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(100)
+                    };
+                    _scrollThrottleTimer.Tick += (s, args) =>
+                    {
+                        _scrollThrottleTimer.Stop();
+                        UpdateVisibleThumbnailStates();
+                    };
+                }
+
+                // タイマーをリセット
+                _scrollThrottleTimer.Stop();
+                _scrollThrottleTimer.Start();
             }
             catch (Exception ex)
             {
@@ -172,11 +239,15 @@ namespace Wideor.App.Features.Timeline
                     return;
                 }
 
-                if (ViewModel == null || FilmStripScrollViewer == null || ViewModel.EditorViewModel == null)
+                if (ViewModel == null || ViewModel.EditorViewModel == null)
                     return;
 
-                var viewportTop = FilmStripScrollViewer.VerticalOffset;
-                var viewportBottom = viewportTop + FilmStripScrollViewer.ViewportHeight;
+                var scrollViewer = GetScrollViewer(FilmStripListBox);
+                if (scrollViewer == null)
+                    return;
+
+                var viewportTop = scrollViewer.VerticalOffset;
+                var viewportBottom = viewportTop + scrollViewer.ViewportHeight;
                 var sceneBlocks = ViewModel.EditorViewModel.SceneBlocks.Value ?? Array.Empty<SceneBlock>();
 
                 ViewModel.UpdateVisibleThumbnailStates(viewportTop, viewportBottom, sceneBlocks);

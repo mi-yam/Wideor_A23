@@ -292,19 +292,81 @@ namespace Wideor.App.Shared.Infra
                 if (_mediaPlayer == null || _mediaPlayer.Media == null || !_isLoaded.Value)
                     return null;
 
-                return await Task.Run(() =>
+                return await Task.Run(async () =>
                 {
-                    // LibVLCSharpの現在のAPIでは、MediaPlayerから直接動画の幅・高さ・フレームレートを取得する方法が限られています
-                    // 現時点では、Durationのみを確実に取得でき、その他の情報はデフォルト値またはnullを返します
-                    // 将来的には、Media.Parse()を使用してTracksから情報を取得する実装を追加できます
+                    var media = _mediaPlayer.Media;
+                    if (media == null)
+                        return null;
+
+                    // Media.Parse()を実行してTracks情報を取得
+                    try
+                    {
+                        await media.Parse(MediaParseOptions.ParseLocal | MediaParseOptions.FetchLocal, 5000);
+                    }
+                    catch
+                    {
+                        // Parseに失敗しても続行
+                    }
+
+                    int width = 0;
+                    int height = 0;
+                    double frameRate = 30.0; // デフォルト値
+                    string? codec = null;
+
+                    // Tracksから動画情報を取得
+                    try
+                    {
+                        var tracks = media.Tracks;
+                        if (tracks != null)
+                        {
+                            foreach (var track in tracks)
+                            {
+                                if (track.TrackType == TrackType.Video)
+                                {
+                                    var videoTrack = track.Data.Video;
+                                    // VideoTrackは構造体なので、nullチェックではなく、Width/Heightが0でないかチェック
+                                    if (videoTrack.Width > 0 && videoTrack.Height > 0)
+                                    {
+                                        width = (int)videoTrack.Width;
+                                        height = (int)videoTrack.Height;
+                                        
+                                        // フレームレートを取得（fps）
+                                        // VideoTrack.FrameRateNumとFrameRateDenから計算
+                                        if (videoTrack.FrameRateDen > 0)
+                                        {
+                                            frameRate = (double)videoTrack.FrameRateNum / videoTrack.FrameRateDen;
+                                        }
+                                        
+                                        // Codec情報は現時点では取得不可（MediaTrackにCodecNameプロパティがない）
+                                        codec = null;
+                                        
+                                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                            "VideoEngine.cs:GetVideoInfoAsync",
+                                            "Video track found",
+                                            new { width, height, frameRate, frameRateNum = videoTrack.FrameRateNum, frameRateDen = videoTrack.FrameRateDen });
+                                        
+                                        break; // 最初のビデオトラックを使用
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception trackEx)
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "VideoEngine.cs:GetVideoInfoAsync",
+                            "Exception reading tracks",
+                            new { exceptionType = trackEx.GetType().Name, message = trackEx.Message });
+                        // エラーが発生してもデフォルト値で続行
+                    }
 
                     return new VideoInfo
                     {
-                        Width = 0, // 現時点では取得不可
-                        Height = 0, // 現時点では取得不可
-                        FrameRate = 30.0, // デフォルト値
-                        Duration = _totalDuration.Value, // MediaPlayer.Lengthから取得可能
-                        Codec = null, // 現時点では取得不可
+                        Width = width,
+                        Height = height,
+                        FrameRate = frameRate,
+                        Duration = _totalDuration.Value,
+                        Codec = codec,
                         Bitrate = null // 現時点では取得不可
                     };
                 });

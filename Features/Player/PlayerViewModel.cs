@@ -86,6 +86,14 @@ namespace Wideor.App.Features.Player
         public ReactiveCommand<double> SetVolumeCommand { get; }
 
         /// <summary>
+        /// 動画情報を取得します
+        /// </summary>
+        public async Task<VideoInfo?> GetVideoInfoAsync()
+        {
+            return await _videoEngine.GetVideoInfoAsync();
+        }
+
+        /// <summary>
         /// LibVLCSharpのMediaPlayerインスタンス（VideoViewへのバインド用）
         /// </summary>
         public LibVLCSharp.Shared.MediaPlayer? MediaPlayer

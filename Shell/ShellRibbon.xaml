@@ -98,10 +98,13 @@
                 <StackPanel Orientation="Horizontal">
                     <fluent:Button Header="拡大"
                                  Command="{Binding ZoomInCommand}"
-                                 ToolTip="タイムラインを拡大表示します" />
+                                 ToolTip="タイムラインを拡大表示します (Ctrl + マウスホイール上でも可能)" />
                     <fluent:Button Header="縮小"
                                  Command="{Binding ZoomOutCommand}"
-                                 ToolTip="タイムラインを縮小表示します" />
+                                 ToolTip="タイムラインを縮小表示します (Ctrl + マウスホイール下でも可能)" />
+                    <fluent:Button Header="リセット"
+                                 Command="{Binding ZoomResetCommand}"
+                                 ToolTip="ズームレベルを100 px/sにリセットします" />
                 </StackPanel>
             </fluent:RibbonGroupBox>
         </fluent:RibbonTabItem>
