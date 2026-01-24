@@ -51,6 +51,11 @@ namespace Wideor.App.Features.Editor
         public IReadOnlyReactiveProperty<double> CurrentPlaybackPosition { get; }
 
         /// <summary>
+        /// シーンブロックのリスト（TimelineViewModelで使用）
+        /// </summary>
+        public IReadOnlyReactiveProperty<IReadOnlyList<SceneBlock>> SceneBlocks { get; }
+
+        /// <summary>
         /// ScrollCoordinator（ViewからScrollViewerを登録するために公開）
         /// </summary>
         public IScrollCoordinator ScrollCoordinator => _scrollCoordinator;
@@ -79,6 +84,12 @@ namespace Wideor.App.Features.Editor
 
             CurrentPlaybackPosition = _projectContext.CurrentPlaybackPosition
                 .ToReadOnlyReactiveProperty(0.0)
+                .AddTo(_disposables);
+
+            // SceneBlocksプロパティを初期化（IProjectContextのSceneBlocksを変換）
+            SceneBlocks = _projectContext.SceneBlocks
+                .Select(blocks => blocks != null ? (IReadOnlyList<SceneBlock>)blocks.ToList() : Array.Empty<SceneBlock>())
+                .ToReadOnlyReactiveProperty<IReadOnlyList<SceneBlock>>(Array.Empty<SceneBlock>())
                 .AddTo(_disposables);
 
             IsAnchorPending = _anchorLogic.IsRecording

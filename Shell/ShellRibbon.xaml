@@ -30,6 +30,15 @@
                 </StackPanel>
             </fluent:RibbonGroupBox>
 
+            <!-- メディアグループ -->
+            <fluent:RibbonGroupBox Header="メディア">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:Button Header="動画を開く"
+                                 Command="{Binding LoadVideoCommand}"
+                                 ToolTip="動画ファイルを読み込みます" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+
             <!-- 出力グループ -->
             <fluent:RibbonGroupBox Header="出力">
                 <StackPanel Orientation="Horizontal">

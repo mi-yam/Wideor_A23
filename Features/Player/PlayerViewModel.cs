@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading;
@@ -15,7 +16,7 @@ namespace Wideor.App.Features.Player
     /// 動画再生機能のViewModel。
     /// IVideoEngineを使用して動画を制御し、状態をReactivePropertyで公開します。
     /// </summary>
-    public class PlayerViewModel : IDisposable
+    public class PlayerViewModel : IDisposable, INotifyPropertyChanged
     {
         private readonly IVideoEngine _videoEngine;
         private readonly CompositeDisposable _disposables = new();
@@ -84,6 +85,24 @@ namespace Wideor.App.Features.Player
         /// </summary>
         public ReactiveCommand<double> SetVolumeCommand { get; }
 
+        /// <summary>
+        /// LibVLCSharpのMediaPlayerインスタンス（VideoViewへのバインド用）
+        /// </summary>
+        public LibVLCSharp.Shared.MediaPlayer? MediaPlayer
+        {
+            get => _mediaPlayer;
+            private set
+            {
+                if (_mediaPlayer != value)
+                {
+                    _mediaPlayer = value;
+                    OnPropertyChanged(nameof(MediaPlayer));
+                }
+            }
+        }
+        
+        private LibVLCSharp.Shared.MediaPlayer? _mediaPlayer;
+
         // --- Private Reactive Properties (for internal state) ---
 
         private readonly ReactiveProperty<double> _volume = new(0.5);
@@ -92,6 +111,9 @@ namespace Wideor.App.Features.Player
         public PlayerViewModel(IVideoEngine videoEngine)
         {
             _videoEngine = videoEngine ?? throw new ArgumentNullException(nameof(videoEngine));
+
+            // 初期MediaPlayerを設定
+            MediaPlayer = _videoEngine.MediaPlayer;
 
             // IObservableをReadOnlyReactivePropertyに変換
             CurrentPosition = _videoEngine.CurrentPosition
@@ -108,6 +130,19 @@ namespace Wideor.App.Features.Player
 
             IsLoaded = _videoEngine.IsLoaded
                 .ToReadOnlyReactiveProperty(false)
+                .AddTo(_disposables);
+            
+            // MediaPlayerの変更を監視（IsLoadedがtrueになったときにMediaPlayerを更新）
+            IsLoaded
+                .Where(loaded => loaded)
+                .Subscribe(_ =>
+                {
+                    MediaPlayer = _videoEngine.MediaPlayer;
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "PlayerViewModel:IsLoaded",
+                        "MediaPlayer updated",
+                        new { hasMediaPlayer = MediaPlayer != null });
+                })
                 .AddTo(_disposables);
 
             // 音量は内部で管理（IVideoEngineに音量のObservableがないため）
@@ -189,14 +224,40 @@ namespace Wideor.App.Features.Player
             LoadVideoCommand = new ReactiveCommand<string>()
                 .WithSubscribe(async filePath =>
                 {
+                    // #region agent log
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "PlayerViewModel.cs:LoadVideoCommand",
+                        "LoadVideoCommand executed",
+                        new { filePath = filePath, isNullOrEmpty = string.IsNullOrEmpty(filePath) });
+                    // #endregion
+
                     if (string.IsNullOrEmpty(filePath))
                         return;
 
                     errorMessage.Value = null; // エラーメッセージをクリア
                     var success = await _videoEngine.LoadAsync(filePath, CancellationToken.None);
+                    
+                    // #region agent log
+                    // IsLoadedの現在の値を取得
+                    var isLoadedValue = IsLoaded.Value;
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "PlayerViewModel.cs:LoadVideoCommand",
+                        "LoadAsync completed",
+                        new { success = success, isLoaded = isLoadedValue, hasMediaPlayer = MediaPlayer != null });
+                    // #endregion
+
                     if (!success)
                     {
                         errorMessage.Value = "動画の読み込みに失敗しました。";
+                    }
+                    else
+                    {
+                        // #region agent log
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "PlayerViewModel.cs:LoadVideoCommand",
+                            "Video loaded successfully",
+                            new { hasMediaPlayer = MediaPlayer != null, isLoaded = IsLoaded.Value });
+                        // #endregion
                     }
                 })
                 .AddTo(_disposables);
@@ -233,6 +294,13 @@ namespace Wideor.App.Features.Player
             {
                 _videoEngine.SetPlaybackSpeed(speed);
             }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
         public void Dispose()

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -18,7 +18,15 @@
     <PackageReference Include="Fluent.Ribbon" Version="10.0.3" />
     <PackageReference Include="LibVLCSharp" Version="3.7.0" />
     <PackageReference Include="LibVLCSharp.WPF" Version="3.7.0" />
-    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21.1" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.22" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- docsフォルダをプロジェクトから除外 -->
+    <Compile Remove="docs\**" />
+    <EmbeddedResource Remove="docs\**" />
+    <None Remove="docs\**" />
   </ItemGroup>
 
 </Project>

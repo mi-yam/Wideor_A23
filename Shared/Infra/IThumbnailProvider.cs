@@ -35,13 +35,15 @@ namespace Wideor.App.Shared.Infra
         /// <param name="width">サムネイルの幅（ピクセル）</param>
         /// <param name="height">サムネイルの高さ（ピクセル）</param>
         /// <param name="cancellationToken">キャンセルトークン</param>
+        /// <param name="knownDuration">既知の動画の長さ（秒）。指定された場合、Duration取得処理をスキップします。</param>
         /// <returns>時間位置をキーとするサムネイルの辞書</returns>
         Task<Dictionary<double, System.Windows.Media.Imaging.BitmapSource>> GenerateThumbnailsAsync(
             string videoFilePath,
             double[] timePositions,
             int width = 160,
             int height = 90,
-            System.Threading.CancellationToken cancellationToken = default);
+            System.Threading.CancellationToken cancellationToken = default,
+            double? knownDuration = null);
 
         /// <summary>
         /// 動画ファイルから等間隔でサムネイルを生成します。
@@ -51,13 +53,15 @@ namespace Wideor.App.Shared.Infra
         /// <param name="width">サムネイルの幅（ピクセル）</param>
         /// <param name="height">サムネイルの高さ（ピクセル）</param>
         /// <param name="cancellationToken">キャンセルトークン</param>
+        /// <param name="knownDuration">既知の動画の長さ（秒）。指定された場合、Duration取得処理をスキップします。</param>
         /// <returns>時間位置をキーとするサムネイルの辞書</returns>
         Task<Dictionary<double, System.Windows.Media.Imaging.BitmapSource>> GenerateThumbnailsEvenlyAsync(
             string videoFilePath,
             int count,
             int width = 160,
             int height = 90,
-            System.Threading.CancellationToken cancellationToken = default);
+            System.Threading.CancellationToken cancellationToken = default,
+            double? knownDuration = null);
 
         /// <summary>
         /// 画像ファイルからサムネイルを生成します。

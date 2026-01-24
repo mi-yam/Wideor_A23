@@ -6,6 +6,10 @@
              xmlns:local="clr-namespace:Wideor.App.Features.Timeline"
              mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="800">
+    <UserControl.Resources>
+        <local:TimeSpanConverter x:Key="TimeSpanConverter" />
+    </UserControl.Resources>
+    
     <UserControl.DataContext>
         <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
     </UserControl.DataContext>
@@ -14,7 +18,7 @@
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled"
                   Background="#1A1A1A">
-        <ItemsControl ItemsSource="{Binding ViewModel.ThumbnailItems}">
+        <ItemsControl ItemsSource="{Binding ThumbnailItems}">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <VirtualizingStackPanel Orientation="Vertical" />
@@ -26,7 +30,17 @@
                             BorderBrush="#444444"
                             BorderThickness="0,0,0,1"
                             Padding="4"
-                            Height="{Binding ViewModel.ThumbnailHeight.Value, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                            Height="{Binding DataContext.ThumbnailHeight.Value, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Opacity" Value="1.0" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsActive.Value}" Value="False">
+                                        <Setter Property="Opacity" Value="0.3" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -36,10 +50,22 @@
                             <!-- サムネイル画像 -->
                             <Image Grid.Column="0"
                                    Source="{Binding Thumbnail}"
-                                   Width="{Binding ViewModel.ThumbnailWidth.Value, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                   Height="{Binding ViewModel.ThumbnailHeight.Value, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                   Width="{Binding DataContext.ThumbnailWidth.Value, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                   Height="{Binding DataContext.ThumbnailHeight.Value, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                    Stretch="Uniform"
-                                   Margin="0,0,8,0" />
+                                   Margin="0,0,8,0">
+                                <Image.Style>
+                                    <Style TargetType="Image">
+                                        <Setter Property="Opacity" Value="1.0" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsActive.Value}" Value="False">
+                                                <Setter Property="Opacity" Value="1.0" />
+                                                <!-- Grayscaleエフェクトは後で追加可能 -->
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Image.Style>
+                            </Image>
 
                             <!-- 時間情報 -->
                             <StackPanel Grid.Column="1"
@@ -59,8 +85,4 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
     </ScrollViewer>
-
-    <UserControl.Resources>
-        <local:TimeSpanConverter x:Key="TimeSpanConverter" />
-    </UserControl.Resources>
 </UserControl>

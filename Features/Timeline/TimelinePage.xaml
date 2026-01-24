@@ -42,19 +42,32 @@
         <!-- タイムラインコンテンツ（C1: TimeRuler, C2: FilmStrip） -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="200" MinWidth="150" />
+                <ColumnDefinition Width="60" MinWidth="60" MaxWidth="60" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
             <!-- C1: TimeRulerView（左側） -->
-            <local:TimeRulerView Grid.Column="0"
+            <local:TimeRulerView x:Name="TimeRulerView"
+                                Grid.Column="0"
                                 ViewModel="{Binding}"
                                 BorderBrush="#444444"
-                                BorderThickness="0,0,1,0" />
+                                BorderThickness="0,0,1,0"
+                                Height="30"
+                                VerticalAlignment="Top" />
 
             <!-- C2: FilmStripView（右側） -->
-            <local:FilmStripView Grid.Column="1"
+            <local:FilmStripView x:Name="FilmStripView"
+                                Grid.Column="1"
                                 ViewModel="{Binding}" />
+
+            <!-- Playhead（赤いインジケータ） -->
+            <Border Grid.Column="1"
+                    Background="Red"
+                    Height="2"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Stretch"
+                    Panel.ZIndex="10"
+                    IsHitTestVisible="False" />
         </Grid>
     </Grid>
 </UserControl>

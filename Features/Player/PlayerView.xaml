@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:local="clr-namespace:Wideor.App.Features.Player"
+             xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
              mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="800">
   <UserControl.DataContext>
@@ -11,6 +12,7 @@
   </UserControl.DataContext>
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
     <local:BooleanToPlayPauseConverter x:Key="PlayPauseConverter" />
     <local:TimeSpanConverter x:Key="TimeSpanConverter" />
   </UserControl.Resources>
@@ -26,12 +28,18 @@
                 BorderBrush="#333333"
                 BorderThickness="1">
             <Grid>
-                <!-- 動画表示エリア（将来的にMediaElementやVideoBrushを配置） -->
+                <!-- 動画表示エリア（LibVLCSharp.WPFのVideoViewを使用） -->
+                <vlc:VideoView MediaPlayer="{Binding MediaPlayer}"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
+
+                <!-- プレースホルダー（動画が読み込まれていない場合に表示） -->
                 <TextBlock Text="動画プレースホルダー"
                           Foreground="#666666"
                           FontSize="16"
                           HorizontalAlignment="Center"
-                          VerticalAlignment="Center" />
+                          VerticalAlignment="Center"
+                          Visibility="{Binding IsLoaded.Value, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
 
                 <!-- エラーメッセージ表示 -->
                 <Border Background="#CC000000"

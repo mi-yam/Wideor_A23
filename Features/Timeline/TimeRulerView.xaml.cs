@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using Reactive.Bindings;
 using Reactive.Bindings.Extensions;
+using System.Windows.Threading; // ← 追加
 
 namespace Wideor.App.Features.Timeline
 {
@@ -34,12 +35,17 @@ namespace Wideor.App.Features.Timeline
                 new PropertyMetadata(null, OnViewModelChanged));
 
         private IDisposable? _subscription;
+        private System.Reactive.Disposables.CompositeDisposable? _disposables;
+        private double? _pendingScrollPosition = null;
+        private bool _isUpdatingRuler = false;
+        private bool _isLayoutUpdatedSubscribed = false;
 
         public TimeRulerView()
         {
             InitializeComponent();
             Loaded += TimeRulerView_Loaded;
             Unloaded += TimeRulerView_Unloaded;
+            LayoutUpdated += TimeRulerView_LayoutUpdated;
         }
 
         private static void OnViewModelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -47,12 +53,14 @@ namespace Wideor.App.Features.Timeline
             if (d is TimeRulerView view)
             {
                 view.SubscribeToViewModel();
+                view.SubscribeToScrollCoordinator();
             }
         }
 
         private void TimeRulerView_Loaded(object sender, RoutedEventArgs e)
         {
             SubscribeToViewModel();
+            SubscribeToScrollCoordinator();
             UpdateRuler();
         }
 
@@ -60,6 +68,62 @@ namespace Wideor.App.Features.Timeline
         {
             _subscription?.Dispose();
             _subscription = null;
+            _disposables?.Dispose();
+            _disposables = null;
+            LayoutUpdated -= TimeRulerView_LayoutUpdated;
+        }
+
+        private void TimeRulerView_LayoutUpdated(object? sender, EventArgs e)
+        {
+            // レイアウト完了後、保留中のスクロール位置を復元
+            if (_pendingScrollPosition.HasValue && TimeRulerScrollViewer != null)
+            {
+                try
+                {
+                    if (TimeRulerScrollViewer.ScrollableHeight > 0)
+                    {
+                        var offset = _pendingScrollPosition.Value * TimeRulerScrollViewer.ScrollableHeight;
+                        TimeRulerScrollViewer.ScrollToVerticalOffset(offset);
+                        
+                        // #region agent log
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimeRulerView.xaml.cs:LayoutUpdated",
+                            "Scroll position restored",
+                            new { offset, scrollableHeight = TimeRulerScrollViewer.ScrollableHeight, pendingScrollPosition = _pendingScrollPosition.Value });
+                        // #endregion
+                        
+                        var pendingValue = _pendingScrollPosition.Value;
+                        _pendingScrollPosition = null;
+                        LayoutUpdated -= TimeRulerView_LayoutUpdated; // 一度だけ実行
+                        _isLayoutUpdatedSubscribed = false;
+                        
+                        // イベントハンドラーを削除した後、再度追加しないようにする
+                        return;
+                    }
+                    else
+                    {
+                        // ScrollableHeightが0の場合は、次のレイアウト更新を待つ
+                        // #region agent log
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimeRulerView.xaml.cs:LayoutUpdated",
+                            "ScrollableHeight is 0, waiting for next layout update",
+                            new { pendingScrollPosition = _pendingScrollPosition.Value });
+                        // #endregion
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // #region agent log
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimeRulerView.xaml.cs:LayoutUpdated",
+                        "Failed to restore scroll position",
+                        new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+                    // #endregion
+                    _pendingScrollPosition = null;
+                    LayoutUpdated -= TimeRulerView_LayoutUpdated;
+                    _isLayoutUpdatedSubscribed = false;
+                }
+            }
         }
 
         private void SubscribeToViewModel()
@@ -70,64 +134,209 @@ namespace Wideor.App.Features.Timeline
                 return;
 
             // PixelsPerSecondまたはTotalDurationが変更されたら目盛りを更新
+            // Throttleを使用して更新頻度を抑制（ズーム操作中の頻繁な更新を防ぐ）
             _subscription = ViewModel.PixelsPerSecond
                 .AsObservable()
                 .CombineLatest(ViewModel.TotalDuration.AsObservable(), (pps, duration) => new { PPS = pps, Duration = duration })
-                .Subscribe(_ => UpdateRuler());
+                .Throttle(TimeSpan.FromMilliseconds(100)) // 100ms間隔で更新
+                .Subscribe(_ =>
+                {
+                    // UIスレッドで実行
+                    if (Dispatcher.CheckAccess())
+                    {
+                        UpdateRuler();
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(UpdateRuler), DispatcherPriority.Normal);
+                    }
+                });
+        }
+
+        private void SubscribeToScrollCoordinator()
+        {
+            _disposables?.Dispose();
+            _disposables = new System.Reactive.Disposables.CompositeDisposable();
+
+            if (ViewModel == null)
+                return;
+
+            // ScrollCoordinatorにScrollViewerを登録
+            var registration = ViewModel.ScrollCoordinator.RegisterScrollViewer(TimeRulerScrollViewer);
+            _disposables.Add(registration);
+
+            // スクロール位置の変更を購読してScrollViewerを更新
+            ViewModel.ScrollPosition
+                .Subscribe(position =>
+                {
+                    if (TimeRulerScrollViewer != null && TimeRulerScrollViewer.ScrollableHeight > 0)
+                    {
+                        var offset = position * TimeRulerScrollViewer.ScrollableHeight;
+                        TimeRulerScrollViewer.ScrollToVerticalOffset(offset);
+                    }
+                })
+                .AddTo(_disposables);
         }
 
         private void UpdateRuler()
         {
-            if (ViewModel == null)
-                return;
+            try
+            {
+                if (ViewModel == null || _isUpdatingRuler)
+                    return;
 
-            RulerCanvas.Children.Clear();
+                _isUpdatingRuler = true;
 
-            var pixelsPerSecond = ViewModel.PixelsPerSecond.Value;
-            var totalDuration = ViewModel.TotalDuration.Value;
-            var canvasWidth = ActualWidth > 0 ? ActualWidth : 800;
-            var canvasHeight = ActualHeight > 0 ? ActualHeight : 60;
+                // #region agent log
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimeRulerView.xaml.cs:UpdateRuler",
+                    "UpdateRuler called",
+                    new { hasViewModel = ViewModel != null, pixelsPerSecond = ViewModel?.PixelsPerSecond.Value ?? 0, totalDuration = ViewModel?.TotalDuration.Value ?? 0 });
+                // #endregion
 
-            if (pixelsPerSecond <= 0 || totalDuration <= 0)
-                return;
+                RulerCanvas.Children.Clear();
 
-            var totalHeight = totalDuration * pixelsPerSecond;
+                var pixelsPerSecond = ViewModel.PixelsPerSecond.Value;
+                var totalDuration = ViewModel.TotalDuration.Value;
+                var canvasWidth = ActualWidth > 0 ? ActualWidth : 120;
+                var canvasHeight = ActualHeight > 0 ? ActualHeight : 30;
+
+                if (pixelsPerSecond <= 0 || totalDuration <= 0)
+                {
+                    // #region agent log
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimeRulerView.xaml.cs:UpdateRuler",
+                        "Invalid parameters, skipping update",
+                        new { pixelsPerSecond, totalDuration });
+                    // #endregion
+                    return;
+                }
+
+                var totalHeight = totalDuration * pixelsPerSecond;
+
+                // 現在のスクロール位置を保存（Canvasの高さ変更後に復元するため）
+                var currentScrollPosition = 0.0;
+                if (TimeRulerScrollViewer != null && TimeRulerScrollViewer.ScrollableHeight > 0)
+                {
+                    currentScrollPosition = TimeRulerScrollViewer.VerticalOffset / TimeRulerScrollViewer.ScrollableHeight;
+                }
+
+                // #region agent log
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimeRulerView.xaml.cs:UpdateRuler",
+                    "Setting canvas size",
+                    new { totalHeight, canvasWidth, scrollableHeight = TimeRulerScrollViewer?.ScrollableHeight ?? 0, currentScrollPosition });
+                // #endregion
+
+                // Canvasの高さを設定（スクロール可能にするため）
+                RulerCanvas.Height = totalHeight;
+                RulerCanvas.Width = canvasWidth;
 
             // 適切な間隔を計算（1秒、5秒、10秒、30秒、1分、5分など）
             var interval = CalculateInterval(pixelsPerSecond);
             var startTime = 0.0;
 
-            // 目盛りを描画
-            for (double time = startTime; time <= totalDuration; time += interval)
+            // 目盛りを描画（最大1000個の子要素に制限してパフォーマンスとメモリの問題を防ぐ）
+            var maxChildren = 1000;
+            var childrenCount = 0;
+            for (double time = startTime; time <= totalDuration && childrenCount < maxChildren; time += interval)
             {
-                var y = ViewModel.TimeToY(time);
-
-                // メイン目盛り（長い線）
-                var isMajorTick = IsMajorTick(time, interval);
-                var line = new Line
+                try
                 {
-                    X1 = 0,
-                    Y1 = y,
-                    X2 = canvasWidth,
-                    Y2 = y,
-                    Stroke = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),
-                    StrokeThickness = isMajorTick ? 1.5 : 0.5,
-                    Opacity = isMajorTick ? 1.0 : 0.6
-                };
-                RulerCanvas.Children.Add(line);
+                    var y = ViewModel.TimeToY(time);
 
-                // 時間ラベル（メイン目盛りのみ）
-                if (isMajorTick)
-                {
+                    // メイン目盛り（長い線）
+                    var tickLevel = GetTickLevel(time, interval);
+                    var line = new Line
+                    {
+                        X1 = 0,
+                        Y1 = y,
+                        X2 = canvasWidth,
+                        Y2 = y,
+                        Stroke = GetTickBrush(tickLevel),
+                        StrokeThickness = GetTickThickness(tickLevel),
+                        Opacity = GetTickOpacity(tickLevel)
+                    };
+                    RulerCanvas.Children.Add(line);
+                    childrenCount++;
+
+                    // 時間ラベル（メジャーとミディアム目盛りに表示）
+                    if (tickLevel == TickLevel.Major || tickLevel == TickLevel.Medium)
+                    {
                     var textBlock = new TextBlock
                     {
                         Text = FormatTime(time),
                         Foreground = new SolidColorBrush(Colors.White),
-                        FontSize = 10,
-                        Margin = new Thickness(4, y - 8, 0, 0)
+                        FontSize = tickLevel == TickLevel.Major ? 10 : 9,
+                        FontWeight = tickLevel == TickLevel.Major ? FontWeights.Bold : FontWeights.Normal,
+                        Margin = new Thickness(2, y - (tickLevel == TickLevel.Major ? 8 : 7), 0, 0)
                     };
-                    RulerCanvas.Children.Add(textBlock);
+                        RulerCanvas.Children.Add(textBlock);
+                        childrenCount++;
+                    }
                 }
+                catch (Exception tickEx)
+                {
+                    // #region agent log
+                    try
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimeRulerView.xaml.cs:UpdateRuler",
+                            "Exception adding tick",
+                            new { time, interval, exceptionType = tickEx.GetType().Name, message = tickEx.Message });
+                    }
+                    catch { }
+                    // #endregion
+                    // 個別の目盛りのエラーは無視して続行
+                }
+            }
+
+                // スクロール位置を復元（Canvasの高さ変更後、レイアウトが完了してから）
+                if (TimeRulerScrollViewer != null && currentScrollPosition > 0)
+                {
+                    // 保留中のスクロール位置を設定（LayoutUpdatedイベントで復元される）
+                    _pendingScrollPosition = currentScrollPosition;
+                    
+                    // LayoutUpdatedイベントを一度だけ購読
+                    if (!_isLayoutUpdatedSubscribed)
+                    {
+                        LayoutUpdated += TimeRulerView_LayoutUpdated;
+                        _isLayoutUpdatedSubscribed = true;
+                    }
+                    
+                    // #region agent log
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimeRulerView.xaml.cs:UpdateRuler",
+                        "Pending scroll position set",
+                        new { pendingScrollPosition = _pendingScrollPosition, currentScrollPosition, isLayoutUpdatedSubscribed = _isLayoutUpdatedSubscribed });
+                    // #endregion
+                }
+
+                // #region agent log
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimeRulerView.xaml.cs:UpdateRuler",
+                    "UpdateRuler completed",
+                    new { childrenCount = RulerCanvas.Children.Count, canvasHeight = RulerCanvas.Height, canvasWidth = RulerCanvas.Width });
+                // #endregion
+            }
+            catch (Exception ex)
+            {
+                // #region agent log
+                try
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimeRulerView.xaml.cs:UpdateRuler",
+                        "UpdateRuler failed with exception",
+                        new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace, innerException = ex.InnerException?.ToString() });
+                }
+                catch { }
+                // #endregion
+                // 例外を再スローしない（アプリケーションをクラッシュさせないため）
+                // throw;
+            }
+            finally
+            {
+                _isUpdatingRuler = false;
             }
         }
 
@@ -158,12 +367,72 @@ namespace Wideor.App.Features.Timeline
         }
 
         /// <summary>
-        /// メイン目盛りかどうかを判定
+        /// 目盛りのレベル
         /// </summary>
-        private bool IsMajorTick(double time, double interval)
+        private enum TickLevel
         {
-            // 10秒、1分、5分などの区切りでメイン目盛り
-            return Math.Abs(time % 60) < 0.01 || Math.Abs(time % 300) < 0.01;
+            Minor,   // 小目盛り
+            Medium,  // 中目盛り
+            Major    // 大目盛り
+        }
+
+        /// <summary>
+        /// 目盛りのレベルを判定
+        /// </summary>
+        private TickLevel GetTickLevel(double time, double interval)
+        {
+            // メジャー: 1分、5分、10分などの大きな区切り
+            if (Math.Abs(time % 60) < 0.01 || Math.Abs(time % 300) < 0.01)
+                return TickLevel.Major;
+            
+            // ミディアム: 10秒、30秒などの区切り
+            if (Math.Abs(time % 10) < 0.01 || Math.Abs(time % 30) < 0.01)
+                return TickLevel.Medium;
+            
+            // マイナー: それ以外
+            return TickLevel.Minor;
+        }
+
+        /// <summary>
+        /// 目盛りのブラシを取得
+        /// </summary>
+        private Brush GetTickBrush(TickLevel level)
+        {
+            return level switch
+            {
+                TickLevel.Major => new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF)), // 白（太い線）
+                TickLevel.Medium => new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0)), // 明るいグレー
+                TickLevel.Minor => new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)), // グレー
+                _ => new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80))
+            };
+        }
+
+        /// <summary>
+        /// 目盛りの太さを取得
+        /// </summary>
+        private double GetTickThickness(TickLevel level)
+        {
+            return level switch
+            {
+                TickLevel.Major => 2.0,
+                TickLevel.Medium => 1.0,
+                TickLevel.Minor => 0.5,
+                _ => 0.5
+            };
+        }
+
+        /// <summary>
+        /// 目盛りの不透明度を取得
+        /// </summary>
+        private double GetTickOpacity(TickLevel level)
+        {
+            return level switch
+            {
+                TickLevel.Major => 1.0,
+                TickLevel.Medium => 0.8,
+                TickLevel.Minor => 0.5,
+                _ => 0.5
+            };
         }
 
         /// <summary>
@@ -185,7 +454,24 @@ namespace Wideor.App.Features.Timeline
         protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
         {
             base.OnRenderSizeChanged(sizeInfo);
-            UpdateRuler();
+            try
+            {
+                UpdateRuler();
+            }
+            catch (Exception ex)
+            {
+                // #region agent log
+                try
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimeRulerView.xaml.cs:OnRenderSizeChanged",
+                        "Exception in UpdateRuler",
+                        new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+                }
+                catch { }
+                // #endregion
+                // 例外を無視（アプリケーションをクラッシュさせないため）
+            }
         }
     }
 }

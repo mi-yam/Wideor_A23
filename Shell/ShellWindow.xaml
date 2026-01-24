@@ -14,9 +14,7 @@
         Width="1400"
         WindowState="Maximized"
         Background="#1A1A1A">
-    <fluent:RibbonWindow.DataContext>
-        <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
-    </fluent:RibbonWindow.DataContext>
+    <!-- DataContextはShellWindow.xaml.csでViewModelプロパティ変更時に設定される -->
 
     <Grid>
         <Grid.RowDefinitions>
@@ -27,7 +25,8 @@
         </Grid.RowDefinitions>
 
         <!-- リボンUI -->
-        <local:ShellRibbon Grid.Row="0"
+        <local:ShellRibbon x:Name="ShellRibbonControl"
+                          Grid.Row="0"
                           ViewModel="{Binding}" />
 
         <!-- メインコンテンツエリア -->
@@ -48,7 +47,7 @@
                               BorderThickness="0,0,1,0" />
 
         <!-- C3: Link Area (プレースホルダー - 将来実装) -->
-        <Border Grid.Column="2"
+        <Border Grid.Column="1"
                 Background="#2A2A2A"
                 BorderBrush="#444444"
                 BorderThickness="0,0,1,0">
@@ -61,12 +60,12 @@
         </Border>
 
         <!-- C4: EditorView -->
-        <editor:EditorView Grid.Column="3"
+        <editor:EditorView Grid.Column="2"
                           ViewModel="{Binding EditorViewModel}" />
 
-        <!-- PlayerView (ZIndex最前面、シアターモード用) -->
+        <!-- PlayerView (ZIndex最前面、プレビューモード/シアターモード用) -->
         <player:PlayerView Grid.Column="0"
-                          Grid.ColumnSpan="3"
+                          Grid.ColumnSpan="4"
                           ViewModel="{Binding PlayerViewModel}"
                           Panel.ZIndex="100"
                           Visibility="Collapsed"

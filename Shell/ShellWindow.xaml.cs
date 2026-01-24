@@ -1,5 +1,6 @@
 using System.Windows;
 using Fluent;
+using Wideor.App.Shared.Infra;
 
 namespace Wideor.App.Shell
 {
@@ -23,12 +24,76 @@ namespace Wideor.App.Shell
                 nameof(ViewModel),
                 typeof(ShellViewModel),
                 typeof(ShellWindow),
-                new PropertyMetadata(null));
+                new PropertyMetadata(null, OnViewModelChanged));
+
+        private static void OnViewModelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is ShellWindow window && e.NewValue is ShellViewModel viewModel)
+            {
+                window.DataContext = viewModel; // DataContextをViewModelに設定
+                
+                // ShellRibbonのViewModelも直接設定
+                if (window.FindName("ShellRibbonControl") is ShellRibbon ribbon)
+                {
+                    ribbon.ViewModel = viewModel;
+                }
+                
+                // #region agent log
+                LogHelper.WriteLog(
+                    "ShellWindow.xaml.cs:OnViewModelChanged",
+                    "ViewModel changed",
+                    new { hasViewModel = viewModel != null, hasLoadVideoCommand = viewModel?.LoadVideoCommand != null });
+                // #endregion
+            }
+        }
 
         public ShellWindow()
         {
+            // #region agent log
+            LogHelper.WriteLog(
+                "ShellWindow.xaml.cs:Constructor",
+                "ShellWindow constructor called",
+                new { hasViewModel = ViewModel != null });
+            // #endregion
+            
             InitializeComponent();
+            
+            // #region agent log
+            LogHelper.WriteLog(
+                "ShellWindow.xaml.cs:Constructor",
+                "After InitializeComponent",
+                new { hasViewModel = ViewModel != null, hasDataContext = DataContext != null });
+            // #endregion
+            
             DataContextChanged += ShellWindow_DataContextChanged;
+            Loaded += ShellWindow_Loaded;
+        }
+
+        private void ShellWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            // LoadedイベントでShellRibbonのViewModelを確実に設定
+            if (ViewModel != null)
+            {
+                // #region agent log
+                LogHelper.WriteLog(
+                    "ShellWindow.xaml.cs:Loaded",
+                    "ShellWindow loaded",
+                    new { hasViewModel = ViewModel != null, hasLoadVideoCommand = ViewModel?.LoadVideoCommand != null });
+                // #endregion
+                
+                // ShellRibbonを検索してViewModelを設定
+                var ribbon = this.FindName("ShellRibbonControl") as ShellRibbon;
+                if (ribbon != null)
+                {
+                    ribbon.ViewModel = ViewModel;
+                    // #region agent log
+                    LogHelper.WriteLog(
+                        "ShellWindow.xaml.cs:Loaded",
+                        "ShellRibbon ViewModel set",
+                        new { ribbonViewModel = ribbon.ViewModel != null });
+                    // #endregion
+                }
+            }
         }
 
         private void ShellWindow_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -36,6 +101,12 @@ namespace Wideor.App.Shell
             if (e.NewValue is ShellViewModel viewModel)
             {
                 ViewModel = viewModel;
+                // #region agent log
+                LogHelper.WriteLog(
+                    "ShellWindow.xaml.cs:DataContextChanged",
+                    "ViewModel set",
+                    new { hasViewModel = ViewModel != null, hasLoadVideoCommand = ViewModel?.LoadVideoCommand != null });
+                // #endregion
             }
         }
     }

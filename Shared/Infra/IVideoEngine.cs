@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using LibVLCSharp.Shared;
 using Wideor.App.Shared.Domain;
 
 namespace Wideor.App.Shared.Infra
@@ -10,6 +11,11 @@ namespace Wideor.App.Shared.Infra
     /// </summary>
     public interface IVideoEngine : IDisposable
     {
+        /// <summary>
+        /// LibVLCSharpのMediaPlayerインスタンス（VideoViewへのバインド用）
+        /// </summary>
+        MediaPlayer? MediaPlayer { get; }
+
         /// <summary>
         /// 現在の再生位置（秒）
         /// </summary>

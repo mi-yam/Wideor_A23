@@ -1,4 +1,5 @@
 using System.Windows.Controls;
+using Wideor.App.Shared.Infra;
 
 namespace Wideor.App.Shell
 {
@@ -28,17 +29,23 @@ namespace Wideor.App.Shell
         {
             if (d is ShellRibbon ribbon)
             {
+                // #region agent log
+                var viewModelType = e.NewValue?.GetType().Name ?? "null";
+                var oldViewModelType = e.OldValue?.GetType().Name ?? "null";
+                LogHelper.WriteLog(
+                    "ShellRibbon.xaml.cs:OnViewModelChanged",
+                    "ViewModel changed",
+                    new { OldViewModelType = oldViewModelType, NewViewModelType = viewModelType, HasNewProjectCommand = (e.NewValue as ShellViewModel)?.NewProjectCommand != null, HasLoadVideoCommand = (e.NewValue as ShellViewModel)?.LoadVideoCommand != null });
+                // #endregion
+                
                 // ViewModelが変更されたら、DataContextも更新
                 ribbon.DataContext = e.NewValue;
+                
                 // #region agent log
-                try
-                {
-                    var viewModelType = e.NewValue?.GetType().Name ?? "null";
-                    System.IO.File.AppendAllText(
-                        @".cursor\debug.log",
-                        $"{{\"timestamp\":{System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"location\":\"ShellRibbon.xaml.cs:OnViewModelChanged\",\"message\":\"ViewModel changed\",\"data\":{{\"ViewModelType\":\"{viewModelType}\",\"HasNewProjectCommand\":{(e.NewValue as ShellViewModel)?.NewProjectCommand != null}}}}}\n");
-                }
-                catch { }
+                LogHelper.WriteLog(
+                    "ShellRibbon.xaml.cs:OnViewModelChanged",
+                    "DataContext set",
+                    new { DataContextType = ribbon.DataContext?.GetType().Name ?? "null" });
                 // #endregion
             }
         }
@@ -52,15 +59,12 @@ namespace Wideor.App.Shell
         private void ShellRibbon_Loaded(object sender, System.Windows.RoutedEventArgs e)
         {
             // #region agent log
-            try
-            {
-                var viewModelType = ViewModel?.GetType().Name ?? "null";
-                var dataContextType = DataContext?.GetType().Name ?? "null";
-                System.IO.File.AppendAllText(
-                    @".cursor\debug.log",
-                    $"{{\"timestamp\":{System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"location\":\"ShellRibbon.xaml.cs:Loaded\",\"message\":\"ShellRibbon loaded\",\"data\":{{\"ViewModelType\":\"{viewModelType}\",\"DataContextType\":\"{dataContextType}\",\"HasNewProjectCommand\":{ViewModel?.NewProjectCommand != null}}}}}\n");
-            }
-            catch { }
+            var viewModelType = ViewModel?.GetType().Name ?? "null";
+            var dataContextType = DataContext?.GetType().Name ?? "null";
+            LogHelper.WriteLog(
+                "ShellRibbon.xaml.cs:Loaded",
+                "ShellRibbon loaded",
+                new { ViewModelType = viewModelType, DataContextType = dataContextType, HasNewProjectCommand = ViewModel?.NewProjectCommand != null });
             // #endregion
         }
     }
