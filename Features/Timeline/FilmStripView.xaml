@@ -26,7 +26,8 @@
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Background="#1A1A1A"
-                      ScrollChanged="FilmStripScrollViewer_ScrollChanged">
+                      ScrollChanged="FilmStripScrollViewer_ScrollChanged"
+                      PreviewMouseWheel="FilmStripScrollViewer_PreviewMouseWheel">
             <ItemsControl x:Name="FilmStripItemsControl" 
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Top"

@@ -120,6 +120,24 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         public ReactiveCommand ZoomResetCommand { get; }
 
+        /// <summary>
+        /// シアター再生コマンド（非表示セグメントをスキップして連続再生）
+        /// </summary>
+        public ReactiveCommand TheaterPlayCommand { get; }
+
+        /// <summary>
+        /// シアター再生を停止するコマンド
+        /// </summary>
+        public ReactiveCommand TheaterStopCommand { get; }
+
+        /// <summary>
+        /// シアター再生中かどうか
+        /// </summary>
+        public ReactiveProperty<bool> IsTheaterPlaying { get; }
+
+        // シアター再生のキャンセルトークン
+        private CancellationTokenSource? _theaterCancellation;
+
         public TimelineViewModel(
             IScrollCoordinator scrollCoordinator,
             ITimeRulerService timeRulerService,
@@ -332,6 +350,44 @@ namespace Wideor.App.Features.Timeline
                     }
                     catch { }
                     // #endregion
+                })
+                .AddTo(_disposables);
+
+            // シアター再生中フラグ
+            IsTheaterPlaying = new ReactiveProperty<bool>(false)
+                .AddTo(_disposables);
+
+            // シアター再生コマンド
+            TheaterPlayCommand = IsTheaterPlaying
+                .Select(playing => !playing) // 再生中でない場合のみ実行可能
+                .ToReactiveCommand()
+                .WithSubscribe(async () =>
+                {
+                    try
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimelineViewModel:TheaterPlayCommand",
+                            "Starting theater play mode",
+                            null);
+
+                        await PlayTheaterModeAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimelineViewModel:TheaterPlayCommand",
+                            "Theater play failed",
+                            new { error = ex.Message });
+                    }
+                })
+                .AddTo(_disposables);
+
+            // シアター停止コマンド
+            TheaterStopCommand = IsTheaterPlaying
+                .ToReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    StopTheaterMode();
                 })
                 .AddTo(_disposables);
 
@@ -670,6 +726,148 @@ namespace Wideor.App.Features.Timeline
         public double YToTime(double y)
         {
             return _timeRulerService.YToTime(y);
+        }
+
+        // --- シアター再生モード ---
+
+        /// <summary>
+        /// シアター再生モードを開始（非表示セグメントをスキップして連続再生）
+        /// </summary>
+        private async Task PlayTheaterModeAsync()
+        {
+            // 既に再生中の場合は何もしない
+            if (IsTheaterPlaying.Value)
+                return;
+
+            // キャンセルトークンを作成
+            _theaterCancellation?.Cancel();
+            _theaterCancellation = new CancellationTokenSource();
+            var cancellationToken = _theaterCancellation.Token;
+
+            IsTheaterPlaying.Value = true;
+
+            try
+            {
+                // 表示されているセグメントのみを取得（開始時間順）
+                var visibleSegments = VideoSegments
+                    .Where(s => s.Visible)
+                    .OrderBy(s => s.StartTime)
+                    .ToList();
+
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel:PlayTheaterModeAsync",
+                    "Starting theater playback",
+                    new { visibleSegmentCount = visibleSegments.Count, totalSegmentCount = VideoSegments.Count });
+
+                // 各セグメントを順番に再生
+                foreach (var segment in visibleSegments)
+                {
+                    // キャンセルされた場合は終了
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+
+                    // セグメントを再生
+                    await PlaySegmentAsync(segment, cancellationToken);
+
+                    // キャンセルされた場合は終了
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+
+                    // 次のセグメントまで少し待機（スムーズな遷移のため）
+                    await Task.Delay(100, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel:PlayTheaterModeAsync",
+                    "Theater playback cancelled",
+                    null);
+            }
+            finally
+            {
+                IsTheaterPlaying.Value = false;
+                CurrentPlayingSegment.Value = null;
+
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel:PlayTheaterModeAsync",
+                    "Theater playback ended",
+                    null);
+            }
+        }
+
+        /// <summary>
+        /// 指定されたセグメントを再生
+        /// </summary>
+        private async Task PlaySegmentAsync(VideoSegment segment, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // セグメントの動画をロード（必要に応じて）
+                if (VideoFilePath.Value != segment.VideoFilePath)
+                {
+                    await _videoEngine.LoadAsync(segment.VideoFilePath);
+                    VideoFilePath.Value = segment.VideoFilePath;
+                }
+
+                // セグメントの開始位置にシーク
+                await _videoEngine.SeekAsync(segment.StartTime);
+
+                // 再生状態を更新
+                segment.State = SegmentState.Playing;
+                CurrentPlayingSegment.Value = segment;
+
+                // 再生開始
+                _videoEngine.Play();
+
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel:PlaySegmentAsync",
+                    "Segment playback started",
+                    new { segmentId = segment.Id, startTime = segment.StartTime, endTime = segment.EndTime });
+
+                // セグメントの終了まで待機
+                var duration = segment.Duration;
+                var waitTime = TimeSpan.FromSeconds(duration);
+
+                // 待機中にキャンセルされたら終了
+                await Task.Delay(waitTime, cancellationToken);
+
+                // 再生停止
+                _videoEngine.Stop();
+                segment.State = SegmentState.Stopped;
+            }
+            catch (OperationCanceledException)
+            {
+                // キャンセル時は現在のセグメントを停止
+                _videoEngine.Stop();
+                segment.State = SegmentState.Stopped;
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// シアター再生モードを停止
+        /// </summary>
+        private void StopTheaterMode()
+        {
+            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                "TimelineViewModel:StopTheaterMode",
+                "Stopping theater mode",
+                null);
+
+            // キャンセルトークンをキャンセル
+            _theaterCancellation?.Cancel();
+
+            // 現在再生中のセグメントを停止
+            _videoEngine.Stop();
+
+            if (CurrentPlayingSegment.Value != null)
+            {
+                CurrentPlayingSegment.Value.State = SegmentState.Stopped;
+                CurrentPlayingSegment.Value = null;
+            }
+
+            IsTheaterPlaying.Value = false;
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

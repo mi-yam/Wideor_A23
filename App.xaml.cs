@@ -538,5 +538,8 @@ namespace Wideor_A23
     {
         public void ExecuteCommand(EditCommand command) { /* スタブ: 何もしない */ }
         public void ExecuteCommands(IEnumerable<EditCommand> commands) { /* スタブ: 何もしない */ }
+        public CommandResult ExecuteCommandWithResult(EditCommand command) => CommandResult.Ok(command);
+        public CommandExecutionReport ExecuteCommandsWithReport(IEnumerable<EditCommand> commands) => new CommandExecutionReport();
+        public Task<CommandResult> ExecuteLoadAsync(EditCommand command) => Task.FromResult(CommandResult.Ok(command));
     }
 }

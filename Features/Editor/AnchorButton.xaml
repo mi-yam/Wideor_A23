@@ -6,6 +6,10 @@
              mc:Ignorable="d"
              d:DesignHeight="40" d:DesignWidth="40">
 
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </UserControl.Resources>
+
     <Button x:Name="AnchorButtonControl"
             Command="{Binding ClickCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
             Background="Transparent"
@@ -18,16 +22,58 @@
             <Ellipse x:Name="PendingEllipse"
                     Fill="#FF6B6B"
                     Opacity="0.5"
-                    Visibility="{Binding IsPending, Converter={StaticResource BooleanToVisibilityConverter}, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    Visibility="{Binding IsPending, Converter={StaticResource BooleanToVisibilityConverter}, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Ellipse.Style>
+                    <Style TargetType="Ellipse">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsPending, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard Name="PendingAnimationStoryboard">
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                             From="0.3" To="1.0" Duration="0:0:1"
+                                                             AutoReverse="True" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <StopStoryboard BeginStoryboardName="PendingAnimationStoryboard" />
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Ellipse.Style>
+            </Ellipse>
 
             <!-- 確定状態 -->
             <Ellipse x:Name="ConfirmedEllipse"
                     Fill="#4ECDC4"
                     Opacity="0"
+                    RenderTransformOrigin="0.5,0.5"
                     Visibility="{Binding IsConfirmed, Converter={StaticResource BooleanToVisibilityConverter}, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <Ellipse.RenderTransform>
-                    <ScaleTransform x:Name="ConfirmedScale" ScaleX="1" ScaleY="1" />
+                    <ScaleTransform ScaleX="1" ScaleY="1" />
                 </Ellipse.RenderTransform>
+                <Ellipse.Style>
+                    <Style TargetType="Ellipse">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsConfirmed, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                             From="0.0" To="1.0" Duration="0:0:0.3" />
+                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(ScaleTransform.ScaleX)"
+                                                             From="0.5" To="1.0" Duration="0:0:0.3" />
+                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(ScaleTransform.ScaleY)"
+                                                             From="0.5" To="1.0" Duration="0:0:0.3" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Ellipse.Style>
             </Ellipse>
 
             <!-- アイコン（アンカー） -->
@@ -39,39 +85,4 @@
         </Grid>
     </Button>
 
-    <UserControl.Triggers>
-        <DataTrigger Binding="{Binding IsPending, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
-            <DataTrigger.EnterActions>
-                <BeginStoryboard Name="PendingAnimationStoryboard">
-                    <Storyboard RepeatBehavior="Forever">
-                        <DoubleAnimation Storyboard.TargetName="PendingEllipse"
-                                       Storyboard.TargetProperty="Opacity"
-                                       From="0.3" To="1.0" Duration="0:0:1"
-                                       AutoReverse="True" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </DataTrigger.EnterActions>
-            <DataTrigger.ExitActions>
-                <StopStoryboard BeginStoryboardName="PendingAnimationStoryboard" />
-            </DataTrigger.ExitActions>
-        </DataTrigger>
-
-        <DataTrigger Binding="{Binding IsConfirmed, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
-            <DataTrigger.EnterActions>
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="ConfirmedEllipse"
-                                       Storyboard.TargetProperty="Opacity"
-                                       From="0.0" To="1.0" Duration="0:0:0.3" />
-                        <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
-                                       Storyboard.TargetProperty="ScaleX"
-                                       From="0.5" To="1.0" Duration="0:0:0.3" />
-                        <DoubleAnimation Storyboard.TargetName="ConfirmedScale"
-                                       Storyboard.TargetProperty="ScaleY"
-                                       From="0.5" To="1.0" Duration="0:0:0.3" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </DataTrigger.EnterActions>
-        </DataTrigger>
-    </UserControl.Triggers>
 </UserControl>

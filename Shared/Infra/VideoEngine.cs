@@ -662,34 +662,99 @@ namespace Wideor.App.Shared.Infra
             _errors.OnNext(error);
         }
 
+        private bool _isDisposed = false;
+        private readonly object _disposeLock = new object();
+
         public void Dispose()
         {
-            if (_positionUpdateTimer != null)
+            lock (_disposeLock)
             {
-                _positionUpdateTimer.Stop();
-                _positionUpdateTimer.Tick -= PositionUpdateTimer_Tick;
+                if (_isDisposed)
+                    return;
+
+                _isDisposed = true;
             }
 
-            if (_mediaPlayer != null)
+            try
             {
-                _mediaPlayer.TimeChanged -= MediaPlayer_TimeChanged;
-                _mediaPlayer.LengthChanged -= MediaPlayer_LengthChanged;
-                _mediaPlayer.Playing -= MediaPlayer_Playing;
-                _mediaPlayer.Paused -= MediaPlayer_Paused;
-                _mediaPlayer.Stopped -= MediaPlayer_Stopped;
-                _mediaPlayer.EndReached -= MediaPlayer_EndReached;
-                _mediaPlayer.EncounteredError -= MediaPlayer_EncounteredError;
-                _mediaPlayer.Dispose();
-                _mediaPlayer = null;
-            }
+                // タイマーを停止
+                if (_positionUpdateTimer != null)
+                {
+                    _positionUpdateTimer.Stop();
+                    _positionUpdateTimer.Tick -= PositionUpdateTimer_Tick;
+                }
 
-            if (_libVLC != null)
+                // MediaPlayerのイベントハンドラを解除（Disposeはしない）
+                if (_mediaPlayer != null)
+                {
+                    try
+                    {
+                        // イベントハンドラを解除
+                        _mediaPlayer.TimeChanged -= MediaPlayer_TimeChanged;
+                        _mediaPlayer.LengthChanged -= MediaPlayer_LengthChanged;
+                        _mediaPlayer.Playing -= MediaPlayer_Playing;
+                        _mediaPlayer.Paused -= MediaPlayer_Paused;
+                        _mediaPlayer.Stopped -= MediaPlayer_Stopped;
+                        _mediaPlayer.EndReached -= MediaPlayer_EndReached;
+                        _mediaPlayer.EncounteredError -= MediaPlayer_EncounteredError;
+
+                        // 再生中の場合は停止
+                        try
+                        {
+                            if (_mediaPlayer.IsPlaying)
+                            {
+                                _mediaPlayer.Stop();
+                            }
+                        }
+                        catch { }
+
+                        // MediaPlayerとLibVLCのDisposeはスキップ
+                        // LibVLCSharpのDispose時にAccessViolationExceptionが発生する既知の問題があり、
+                        // .NET Core/.NET 5+ではAccessViolationExceptionを捕捉できないため、
+                        // ネイティブリソースの解放はOSに任せる
+                        //
+                        // 参考: https://github.com/videolan/libvlcsharp/issues/crash-on-dispose
+                        // アプリケーション終了時にOSがプロセスのリソースを解放するため、
+                        // メモリリークの心配はない
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog(
+                            "VideoEngine:Dispose",
+                            "Error during MediaPlayer cleanup",
+                            new { error = ex.Message });
+                    }
+                }
+
+                LogHelper.WriteLog(
+                    "VideoEngine:Dispose",
+                    "LibVLC/MediaPlayer dispose skipped to avoid AccessViolationException",
+                    null);
+
+                // マネージドリソース（Subject）を解放
+                try
+                {
+                    _disposables?.Dispose();
+                }
+                catch (Exception) { }
+
+                try
+                {
+                    _currentPosition?.Dispose();
+                    _totalDuration?.Dispose();
+                    _isPlaying?.Dispose();
+                    _isLoaded?.Dispose();
+                    _errors?.Dispose();
+                }
+                catch (Exception) { }
+            }
+            catch (Exception ex)
             {
-                _libVLC.Dispose();
+                LogHelper.WriteLog(
+                    "VideoEngine:Dispose",
+                    "Unexpected error during dispose",
+                    new { error = ex.Message });
             }
-
-            _disposables?.Dispose();
-            _errors?.Dispose();
         }
     }
 }

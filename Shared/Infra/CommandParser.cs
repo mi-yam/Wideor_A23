@@ -4,25 +4,51 @@ using Wideor.App.Shared.Domain;
 
 namespace Wideor.App.Shared.Infra
 {
+    /// <summary>
+    /// テキストからコマンドをパースするクラス
+    /// 対応コマンド: LOAD, CUT, HIDE, SHOW, DELETE, MERGE, SPEED
+    /// </summary>
     public class CommandParser : ICommandParser
     {
-        // LOAD video.mp4
-        private static readonly Regex LoadPattern = new Regex(@"^\s*LOAD\s+(.+)$", RegexOptions.IgnoreCase);
-        
+        // LOAD video.mp4 または LOAD "path with spaces.mp4"
+        private static readonly Regex LoadPattern = new Regex(
+            @"^\s*LOAD\s+(?:""([^""]+)""|(\S+))$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // CUT 00:01:23.456
-        private static readonly Regex CutPattern = new Regex(@"^\s*CUT\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$");
-        
+        private static readonly Regex CutPattern = new Regex(
+            @"^\s*CUT\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // HIDE 00:01:00.000 00:01:30.000
-        private static readonly Regex HidePattern = new Regex(@"^\s*HIDE\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$");
-        
+        private static readonly Regex HidePattern = new Regex(
+            @"^\s*HIDE\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // SHOW 00:01:00.000 00:01:30.000
-        private static readonly Regex ShowPattern = new Regex(@"^\s*SHOW\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$");
-        
+        private static readonly Regex ShowPattern = new Regex(
+            @"^\s*SHOW\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // DELETE 00:00:30.000 00:01:00.000
-        private static readonly Regex DeletePattern = new Regex(@"^\s*DELETE\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$");
-        
+        private static readonly Regex DeletePattern = new Regex(
+            @"^\s*DELETE\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // MERGE 00:01:00.000 00:01:30.000 (隣接セグメントを結合)
+        private static readonly Regex MergePattern = new Regex(
+            @"^\s*MERGE\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // SPEED 1.5x 00:01:00.000 00:01:30.000 (再生速度変更)
+        private static readonly Regex SpeedPattern = new Regex(
+            @"^\s*SPEED\s+(\d+(?:\.\d+)?)x\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // --- [00:01:15.000 -> 00:01:20.500] --- (従来形式)
-        private static readonly Regex SeparatorPattern = new Regex(@"^[-]{3,}\s*\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*[-]{3,}$");
+        private static readonly Regex SeparatorPattern = new Regex(
+            @"^[-]{3,}\s*\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*[-]{3,}$",
+            RegexOptions.Compiled);
 
         public List<EditCommand> ParseCommands(string text)
         {
@@ -43,14 +69,26 @@ namespace Wideor.App.Shared.Infra
 
         public EditCommand? ParseLine(string line, int lineNumber)
         {
+            // 空行やコメント行はスキップ
+            var trimmedLine = line.Trim();
+            if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+            {
+                return null;
+            }
+
             // LOAD コマンド
             var loadMatch = LoadPattern.Match(line);
             if (loadMatch.Success)
             {
+                // クォート付きパスまたは通常のパスを取得
+                var filePath = loadMatch.Groups[1].Success
+                    ? loadMatch.Groups[1].Value
+                    : loadMatch.Groups[2].Value;
+
                 return new EditCommand
                 {
                     Type = CommandType.Load,
-                    FilePath = loadMatch.Groups[1].Value.Trim(),
+                    FilePath = filePath.Trim(),
                     LineNumber = lineNumber
                 };
             }
@@ -110,7 +148,57 @@ namespace Wideor.App.Shared.Infra
                 };
             }
 
+            // MERGE コマンド
+            var mergeMatch = MergePattern.Match(line);
+            if (mergeMatch.Success)
+            {
+                var (startTime, endTime) = ParseTimeRange(mergeMatch.Groups);
+                return new EditCommand
+                {
+                    Type = CommandType.Merge,
+                    StartTime = startTime,
+                    EndTime = endTime,
+                    LineNumber = lineNumber
+                };
+            }
+
+            // SPEED コマンド
+            var speedMatch = SpeedPattern.Match(line);
+            if (speedMatch.Success)
+            {
+                var speedRate = double.Parse(speedMatch.Groups[1].Value);
+                var (startTime, endTime) = ParseSpeedTimeRange(speedMatch.Groups);
+                return new EditCommand
+                {
+                    Type = CommandType.Speed,
+                    SpeedRate = speedRate,
+                    StartTime = startTime,
+                    EndTime = endTime,
+                    LineNumber = lineNumber
+                };
+            }
+
             return null;
+        }
+
+        /// <summary>
+        /// SPEEDコマンド用の時間範囲パース（グループ位置が異なる）
+        /// </summary>
+        private (double startTime, double endTime) ParseSpeedTimeRange(GroupCollection groups)
+        {
+            var startHours = int.Parse(groups[2].Value);
+            var startMinutes = int.Parse(groups[3].Value);
+            var startSeconds = int.Parse(groups[4].Value);
+            var startMilliseconds = int.Parse(groups[5].Value);
+            var startTime = startHours * 3600 + startMinutes * 60 + startSeconds + startMilliseconds / 1000.0;
+
+            var endHours = int.Parse(groups[6].Value);
+            var endMinutes = int.Parse(groups[7].Value);
+            var endSeconds = int.Parse(groups[8].Value);
+            var endMilliseconds = int.Parse(groups[9].Value);
+            var endTime = endHours * 3600 + endMinutes * 60 + endSeconds + endMilliseconds / 1000.0;
+
+            return (startTime, endTime);
         }
 
         private double ParseTime(GroupCollection groups)

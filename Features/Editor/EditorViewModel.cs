@@ -12,6 +12,9 @@ using Wideor.App.Features.Editor.Internal;
 using Wideor.App.Shared.Domain;
 using Wideor.App.Shared.Infra;
 
+// SceneParserの曖昧さを解消するためのエイリアス
+using InternalSceneParser = Wideor.App.Features.Editor.Internal.SceneParser;
+
 namespace Wideor.App.Features.Editor
 {
     /// <summary>
@@ -337,7 +340,7 @@ namespace Wideor.App.Features.Editor
             foreach (var scene in scenes.OrderBy(s => s.StartTime))
             {
                 // コマンド行を生成
-                var command = SceneParser.GenerateCommandText(scene.StartTime, scene.EndTime);
+                var command = InternalSceneParser.GenerateCommandText(scene.StartTime, scene.EndTime);
                 textBuilder.AppendLine(command);
 
                 // タイトルを追加
@@ -358,7 +361,7 @@ namespace Wideor.App.Features.Editor
         /// </summary>
         private void InsertTimeCommand(double startTime, double endTime)
         {
-            var command = SceneParser.GenerateCommandText(startTime, endTime);
+            var command = InternalSceneParser.GenerateCommandText(startTime, endTime);
             var currentText = Text.Value;
             var cursorPosition = 0; // 実際のカーソル位置はEditorViewから取得する必要がある
 

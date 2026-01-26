@@ -4,6 +4,8 @@ using System.Collections.Specialized;
 using System.Reactive.Disposables;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media.Animation;
 using Wideor.App.Shared.Domain;
 
 namespace Wideor.App.Features.Timeline
@@ -11,9 +13,17 @@ namespace Wideor.App.Features.Timeline
     /// <summary>
     /// FilmStripView.xaml の相互作用ロジック
     /// 通常スクロール型：クリップサイズに応じて複数のクリップを表示
+    /// スナップスクロール対応：PowerPointライクにセグメント単位でスナップ
     /// </summary>
     public partial class FilmStripView : UserControl
     {
+        /// <summary>
+        /// スナップスクロールを有効にするかどうか
+        /// </summary>
+        public bool EnableSnapScroll { get; set; } = true;
+
+        // スナップアニメーション中かどうか
+        private bool _isSnapping = false;
         /// <summary>
         /// ViewModelプロパティ
         /// </summary>
@@ -304,6 +314,155 @@ namespace Wideor.App.Features.Timeline
                 var visible = GetVisibleClipIndices();
                 return visible.Count > 0 ? visible[0] : 0;
             }
+        }
+
+        /// <summary>
+        /// マウスホイールイベント - スナップスクロール対応
+        /// Ctrlキーが押されていない場合はセグメント単位でスナップ
+        /// </summary>
+        public void FilmStripScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            // スナップスクロールが無効の場合は通常スクロール
+            if (!EnableSnapScroll)
+                return;
+
+            // Ctrlキーが押されている場合は通常スクロール（ズーム用に予約）
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                return;
+
+            // スナップアニメーション中は無視
+            if (_isSnapping)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // クリップがない場合は通常スクロール
+            if (_totalClips == 0)
+                return;
+
+            e.Handled = true;
+
+            // 現在表示中のクリップインデックス
+            var currentIndex = CurrentClipIndex;
+
+            // スクロール方向に応じて次のクリップへ移動
+            int nextIndex;
+            if (e.Delta > 0)
+            {
+                // 上方向スクロール: 前のクリップへ
+                nextIndex = Math.Max(0, currentIndex - 1);
+            }
+            else
+            {
+                // 下方向スクロール: 次のクリップへ
+                nextIndex = Math.Min(_totalClips - 1, currentIndex + 1);
+            }
+
+            // 同じクリップなら何もしない
+            if (nextIndex == currentIndex)
+                return;
+
+            // スナップアニメーション付きでスクロール
+            ScrollToClipIndexWithAnimation(nextIndex);
+        }
+
+        /// <summary>
+        /// スナップアニメーション付きで指定インデックスのクリップにスクロール
+        /// </summary>
+        private void ScrollToClipIndexWithAnimation(int index)
+        {
+            if (_totalClips == 0 || index < 0 || index >= _totalClips)
+                return;
+
+            var container = FilmStripItemsControl.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
+            if (container == null)
+            {
+                // コンテナがまだ生成されていない場合は直接スクロール
+                ScrollToClipIndex(index);
+                return;
+            }
+
+            try
+            {
+                // コンテナの位置を取得
+                var transform = container.TransformToAncestor(FilmStripScrollViewer);
+                var targetPosition = transform.Transform(new Point(0, 0)).Y;
+
+                // 目標スクロール位置
+                var currentOffset = FilmStripScrollViewer.VerticalOffset;
+                var targetOffset = currentOffset + targetPosition;
+
+                // スクロール範囲を制限
+                targetOffset = Math.Max(0, Math.Min(targetOffset, FilmStripScrollViewer.ScrollableHeight));
+
+                // アニメーションを開始
+                _isSnapping = true;
+
+                // DoubleAnimationを使用してスムーズスクロール
+                var animation = new DoubleAnimation
+                {
+                    From = currentOffset,
+                    To = targetOffset,
+                    Duration = TimeSpan.FromMilliseconds(250),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+
+                animation.Completed += (s, e) =>
+                {
+                    _isSnapping = false;
+                    UpdateClipIndicator();
+                };
+
+                // アニメーションを適用（ScrollViewerのVerticalOffsetは直接アニメーションできないため、タイマーベースで実装）
+                AnimateScrollViewer(currentOffset, targetOffset, 250);
+            }
+            catch (Exception ex)
+            {
+                _isSnapping = false;
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "FilmStripView:ScrollToClipIndexWithAnimation",
+                    "Animation failed, falling back to direct scroll",
+                    new { index = index, error = ex.Message });
+
+                // フォールバック: 直接スクロール
+                ScrollToClipIndex(index);
+            }
+        }
+
+        /// <summary>
+        /// ScrollViewerをアニメーションでスクロール
+        /// </summary>
+        private void AnimateScrollViewer(double from, double to, int durationMs)
+        {
+            var startTime = DateTime.Now;
+            var duration = TimeSpan.FromMilliseconds(durationMs);
+
+            System.Windows.Threading.DispatcherTimer timer = new()
+            {
+                Interval = TimeSpan.FromMilliseconds(16) // 約60fps
+            };
+
+            timer.Tick += (s, e) =>
+            {
+                var elapsed = DateTime.Now - startTime;
+                var progress = Math.Min(1.0, elapsed.TotalMilliseconds / durationMs);
+
+                // イージング関数（CubicEaseOut）を適用
+                var easedProgress = 1.0 - Math.Pow(1.0 - progress, 3);
+
+                var currentOffset = from + (to - from) * easedProgress;
+                FilmStripScrollViewer.ScrollToVerticalOffset(currentOffset);
+
+                if (progress >= 1.0)
+                {
+                    timer.Stop();
+                    _isSnapping = false;
+                    UpdateClipIndicator();
+                }
+            };
+
+            timer.Start();
         }
     }
 }

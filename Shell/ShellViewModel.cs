@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
@@ -454,6 +455,9 @@ namespace Wideor.App.Shell
                                 };
 
                                 _commandExecutor.ExecuteCommand(loadCommand);
+
+                                // EditorのテキストにLOADコマンドを自動追加
+                                AddLoadCommandToEditor(videoFilePath);
                             });
 
                             Wideor.App.Shared.Infra.LogHelper.WriteLog(
@@ -582,6 +586,107 @@ namespace Wideor.App.Shell
 
             // 初期化処理を開始
             _ = InitializeAsync();
+        }
+
+        /// <summary>
+        /// EditorのテキストにLOADコマンドを自動追加
+        /// </summary>
+        private void AddLoadCommandToEditor(string videoFilePath)
+        {
+            try
+            {
+                // 現在のテキストを取得
+                var currentText = EditorViewModel.Text.Value ?? string.Empty;
+
+                // LOADコマンドを生成
+                var loadCommandText = FormatLoadCommand(videoFilePath);
+
+                // Headerセクションを探す
+                var lines = currentText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                var headerEndIndex = -1;
+
+                // "---" を探してHeaderの終わりを見つける
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Trim() == "---")
+                    {
+                        headerEndIndex = i;
+                        break;
+                    }
+                }
+
+                string newText;
+                if (headerEndIndex >= 0)
+                {
+                    // Headerが存在する場合、その直後にLOADコマンドを追加
+                    var headerLines = lines.Take(headerEndIndex + 1).ToList();
+                    var bodyLines = lines.Skip(headerEndIndex + 1).ToList();
+
+                    // 既存のLOADコマンドがあるかチェック
+                    var existingLoadIndex = bodyLines.FindIndex(line => 
+                        line.TrimStart().StartsWith("LOAD ", StringComparison.OrdinalIgnoreCase));
+
+                    if (existingLoadIndex >= 0)
+                    {
+                        // 既存のLOADコマンドを置き換え
+                        bodyLines[existingLoadIndex] = loadCommandText;
+                    }
+                    else
+                    {
+                        // 新しいLOADコマンドを追加（空行を挟む）
+                        if (bodyLines.Count > 0 && !string.IsNullOrWhiteSpace(bodyLines[0]))
+                        {
+                            bodyLines.Insert(0, string.Empty);
+                        }
+                        bodyLines.Insert(0, loadCommandText);
+                    }
+
+                    newText = string.Join(Environment.NewLine, headerLines.Concat(bodyLines));
+                }
+                else
+                {
+                    // Headerが存在しない場合、先頭に追加
+                    if (!string.IsNullOrWhiteSpace(currentText))
+                    {
+                        newText = loadCommandText + Environment.NewLine + Environment.NewLine + currentText;
+                    }
+                    else
+                    {
+                        newText = loadCommandText;
+                    }
+                }
+
+                // EditorViewModelのテキストを更新
+                EditorViewModel.Text.Value = newText;
+
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "ShellViewModel:AddLoadCommandToEditor",
+                    "LOAD command added to editor",
+                    new { videoFilePath = videoFilePath, commandText = loadCommandText });
+            }
+            catch (Exception ex)
+            {
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "ShellViewModel:AddLoadCommandToEditor",
+                    "Failed to add LOAD command to editor",
+                    new { videoFilePath = videoFilePath, error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// LOADコマンドのテキストをフォーマット
+        /// </summary>
+        private string FormatLoadCommand(string filePath)
+        {
+            // パスにスペースが含まれている場合はクォートで囲む
+            if (filePath.Contains(" "))
+            {
+                return $"LOAD \"{filePath}\"";
+            }
+            else
+            {
+                return $"LOAD {filePath}";
+            }
         }
 
         /// <summary>

@@ -44,6 +44,86 @@ namespace Wideor.App.Features.Timeline
                 new PropertyMetadata(null, OnSegmentChanged));
 
         /// <summary>
+        /// タイトル（パラグラフ装飾用）
+        /// </summary>
+        public string? Title
+        {
+            get => (string?)GetValue(TitleProperty);
+            set => SetValue(TitleProperty, value);
+        }
+
+        public static readonly DependencyProperty TitleProperty =
+            DependencyProperty.Register(nameof(Title), typeof(string), typeof(VideoSegmentView),
+                new PropertyMetadata(null, OnTitleChanged));
+
+        private static void OnTitleChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is VideoSegmentView view)
+            {
+                view.UpdateTitleOverlay();
+            }
+        }
+
+        /// <summary>
+        /// 字幕（パラグラフ装飾用）
+        /// </summary>
+        public string? Subtitle
+        {
+            get => (string?)GetValue(SubtitleProperty);
+            set => SetValue(SubtitleProperty, value);
+        }
+
+        public static readonly DependencyProperty SubtitleProperty =
+            DependencyProperty.Register(nameof(Subtitle), typeof(string), typeof(VideoSegmentView),
+                new PropertyMetadata(null, OnSubtitleChanged));
+
+        private static void OnSubtitleChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is VideoSegmentView view)
+            {
+                view.UpdateSubtitleOverlay();
+            }
+        }
+
+        /// <summary>
+        /// タイトルオーバーレイを更新
+        /// </summary>
+        private void UpdateTitleOverlay()
+        {
+            if (TitleOverlay == null || TitleText == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(Title))
+            {
+                TitleText.Text = Title;
+                TitleOverlay.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                TitleOverlay.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>
+        /// 字幕オーバーレイを更新
+        /// </summary>
+        private void UpdateSubtitleOverlay()
+        {
+            if (SubtitleOverlay == null || SubtitleText == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(Subtitle))
+            {
+                SubtitleText.Text = Subtitle;
+                SubtitleOverlay.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                SubtitleOverlay.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>
         /// クリップの高さ（FilmStripViewから制御）
         /// </summary>
         public double ClipHeight

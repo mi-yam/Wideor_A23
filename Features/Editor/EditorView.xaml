@@ -11,14 +11,14 @@
         <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
     </UserControl.DataContext>
 
-    <Grid Background="#1A1A1A">
+  <Grid Background="#111111">
         <!-- AvalonEdit -->
         <avalon:TextEditor x:Name="TextEditorControl"
                           FontFamily="Consolas"
-                          FontSize="14"
+                          FontSize="16"
                           ShowLineNumbers="True"
                           SyntaxHighlighting="C#"
-                          Background="#1A1A1A"
+                          Background="#111111"
                           Foreground="#E0E0E0"
                           LineNumbersForeground="#888888" />
 

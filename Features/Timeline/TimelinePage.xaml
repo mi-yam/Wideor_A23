@@ -11,7 +11,7 @@
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           ClipToBounds="True">
-        <!-- タイムラインコンテンツ（C1: TimeRuler, C2: FilmStrip, C3: GridSplitter） -->
+        <!-- タイムラインコンテンツ（C1: TimeRuler, C2: FilmStrip, C3: LinkArea, C4: GridSplitter） -->
         <Grid Focusable="True"
               HorizontalAlignment="Stretch"
               VerticalAlignment="Stretch"
@@ -21,6 +21,8 @@
                 <ColumnDefinition Width="60" MinWidth="60" MaxWidth="60" />
                 <!-- C2: Film Area (可変、最小260px - 動画の最小サイズに合わせる) -->
                 <ColumnDefinition Width="*" MinWidth="260" />
+                <!-- C3: Link Area (80px固定) - フィルムとテキストの対応関係を表示 -->
+                <ColumnDefinition Width="80" MinWidth="80" MaxWidth="80" />
                 <!-- GridSplitter -->
                 <ColumnDefinition Width="4" />
             </Grid.ColumnDefinitions>
@@ -38,15 +40,21 @@
                                 BorderBrush="#444444"
                                 BorderThickness="0,0,1,0" />
 
-            <!-- C2: FilmStripView（右側） -->
+            <!-- C2: FilmStripView（中央） -->
             <local:FilmStripView x:Name="FilmStripView"
                                 Grid.Column="1"
                                 ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch" />
 
+            <!-- C3: LinkAreaView（右側） - フィルムとテキストの対応関係を表示 -->
+            <local:LinkAreaView x:Name="LinkAreaView"
+                               Grid.Column="2"
+                               ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
+                               VerticalAlignment="Stretch" />
+
             <!-- GridSplitterでリサイズ可能にする -->
-            <GridSplitter Grid.Column="2"
+            <GridSplitter Grid.Column="3"
                          HorizontalAlignment="Stretch"
                          VerticalAlignment="Stretch"
                          Background="#444444"
