@@ -33,7 +33,8 @@
         <Grid Grid.Row="1" ClipToBounds="True">
             <Grid.ColumnDefinitions>
                 <!-- C0: Timeline Area (TimeRuler 60px + FilmStrip 可変) -->
-                <ColumnDefinition Width="700" MinWidth="400" />
+                <!-- 最小幅を320pxに設定（動画の最小サイズを考慮） -->
+                <ColumnDefinition Width="700" MinWidth="320" />
                 <!-- C1: GridSplitter (フィルムエリアとリンクエリアの境界) -->
                 <ColumnDefinition Width="5" />
                 <!-- C2: Link Area -->
