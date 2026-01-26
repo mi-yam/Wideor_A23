@@ -26,7 +26,7 @@ namespace Wideor.App.Features.Timeline
         private static readonly object _playbackLock = new object();
 
         private LibVLC? _libVLC;
-        private MediaPlayer? _mediaPlayer;
+        private LibVLCSharp.Shared.MediaPlayer? _mediaPlayer;
         private CompositeDisposable? _disposables;
         private bool _isPlaying = false;
         private bool _isDraggingSlider = false;
@@ -71,12 +71,101 @@ namespace Wideor.App.Features.Timeline
         {
             if (height > 0 && MainBorder != null)
             {
-                MainBorder.Height = height;
+                // 動画のアスペクト比を考慮して高さを調整
+                var adjustedHeight = CalculateOptimalHeight(height);
+                MainBorder.Height = adjustedHeight;
+                
+                // MainBorderの最大高さも設定（親要素からのはみ出しを防止）
+                // ただし、最小高さ（150px）は保証する
+                MainBorder.MinHeight = 150;
             }
         }
 
+        /// <summary>
+        /// 動画のアスペクト比を考慮して最適な高さを計算
+        /// フィルムエリアの幅に基づいて、動画がはみ出ないように高さを計算
+        /// </summary>
+        private double CalculateOptimalHeight(double baseHeight)
+        {
+            // 親要素（FilmStripView）の幅を取得
+            var availableWidth = GetParentWidth();
+            
+            // サムネイル画像からアスペクト比を取得
+            if (Segment?.Thumbnail != null)
+            {
+                var thumbnail = Segment.Thumbnail;
+                
+                // BitmapSourceがFreezeされている場合、PixelWidth/PixelHeightを使用（スレッドセーフ）
+                // Freezeされていない場合でも、PixelWidth/PixelHeightは使用可能
+                double thumbnailWidth = 0;
+                double thumbnailHeight = 0;
+                
+                try
+                {
+                    // PixelWidth/PixelHeightはスレッドセーフ（Freeze後は確実にスレッドセーフ）
+                    thumbnailWidth = thumbnail.PixelWidth;
+                    thumbnailHeight = thumbnail.PixelHeight;
+                }
+                catch
+                {
+                    // エラーが発生した場合は、ベースの高さを使用
+                    return Math.Max(150, baseHeight);
+                }
+                
+                if (thumbnailWidth > 0 && thumbnailHeight > 0)
+                {
+                    var aspectRatio = thumbnailHeight / thumbnailWidth;
+                    
+                    if (availableWidth > 0)
+                    {
+                        // 利用可能な幅に基づいて動画エリアの高さを計算
+                        var videoHeight = availableWidth * aspectRatio;
+                        // ヘッダー（約25px）とコントロールバー（約35px）の高さを追加
+                        var totalHeight = videoHeight + 60;
+                        // 最小高さ（150px）を保証
+                        return Math.Max(150, totalHeight);
+                    }
+                }
+            }
+            
+            // アスペクト比が取得できない場合は、ベースの高さを使用（最小150px）
+            return Math.Max(150, baseHeight);
+        }
+
+        /// <summary>
+        /// 親要素（FilmStripView）の幅を取得
+        /// </summary>
+        private double GetParentWidth()
+        {
+            // まずActualWidthを試す（これが最も正確）
+            if (ActualWidth > 0)
+            {
+                // スクロールバーの幅（約20px）とボーダー分を考慮
+                return Math.Max(260, ActualWidth - 20);
+            }
+            
+            // 親要素から取得を試みる
+            var parent = Parent;
+            while (parent != null)
+            {
+                if (parent is FilmStripView filmStrip && filmStrip.ActualWidth > 0)
+                {
+                    // FilmStripViewの幅からスクロールバー分を差し引く
+                    return Math.Max(260, filmStrip.ActualWidth - 20);
+                }
+                if (parent is FrameworkElement fe && fe.ActualWidth > 0)
+                {
+                    return Math.Max(260, fe.ActualWidth - 20);
+                }
+                parent = LogicalTreeHelper.GetParent(parent) ?? System.Windows.Media.VisualTreeHelper.GetParent(parent);
+            }
+            
+            // デフォルト幅（260px - 最小サイズ）
+            return 260.0;
+        }
+
         // MediaPlayerプロパティは互換性のために残すが、使用しない
-        public MediaPlayer? MediaPlayer
+        public LibVLCSharp.Shared.MediaPlayer? MediaPlayer
         {
             get => _mediaPlayer;
             set { } // 無視（各セグメントは独自のMediaPlayerを持つ）
@@ -85,9 +174,9 @@ namespace Wideor.App.Features.Timeline
         public static readonly DependencyProperty MediaPlayerProperty =
             DependencyProperty.Register(
                 nameof(MediaPlayer),
-                typeof(MediaPlayer),
+                typeof(LibVLCSharp.Shared.MediaPlayer),
                 typeof(VideoSegmentView),
-                new PropertyMetadata(null));
+                new PropertyMetadata(default(LibVLCSharp.Shared.MediaPlayer)));
 
         private static void OnSegmentChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
@@ -102,6 +191,7 @@ namespace Wideor.App.Features.Timeline
             InitializeComponent();
             Loaded += VideoSegmentView_Loaded;
             Unloaded += VideoSegmentView_Unloaded;
+            SizeChanged += VideoSegmentView_SizeChanged;
         }
 
         private void VideoSegmentView_Loaded(object sender, RoutedEventArgs e)
@@ -111,7 +201,7 @@ namespace Wideor.App.Features.Timeline
                 "VideoSegmentView loaded",
                 new { 
                     hasSegment = Segment != null, 
-                    segmentId = Segment?.Id ?? -1,
+                    segmentId = Segment?.Id ?? -1, 
                     clipHeight = ClipHeight
                 });
             
@@ -122,6 +212,15 @@ namespace Wideor.App.Features.Timeline
             }
             
             UpdateView();
+        }
+
+        private void VideoSegmentView_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // 幅が変更された場合、高さを再計算
+            if (e.WidthChanged && ClipHeight > 0)
+            {
+                UpdateClipHeight(ClipHeight);
+            }
         }
 
         private void VideoSegmentView_Unloaded(object sender, RoutedEventArgs e)
@@ -182,6 +281,19 @@ namespace Wideor.App.Features.Timeline
                 ThumbnailImage.Source = Segment.Thumbnail;
                 ThumbnailImage.Visibility = Visibility.Visible;
                 NoThumbnailPanel.Visibility = Visibility.Collapsed;
+                
+                // サムネイルが読み込まれたら、高さを再計算（UIスレッドで実行）
+                if (ClipHeight > 0)
+                {
+                    if (Dispatcher.CheckAccess())
+                    {
+                        UpdateClipHeight(ClipHeight);
+                    }
+                    else
+                    {
+                        Dispatcher.Invoke(() => UpdateClipHeight(ClipHeight));
+                    }
+                }
             }
             else
             {
@@ -220,15 +332,50 @@ namespace Wideor.App.Features.Timeline
                 }
 
                 // 動画の最初のフレーム（0秒位置）のサムネイルを生成
+                // ThumbnailProvider内でFreeze()が呼び出されるため、返されるBitmapSourceは既にスレッドセーフ
                 var thumbnail = await thumbnailProvider.GenerateThumbnailAsync(
                     Segment.VideoFilePath,
                     timePosition: 0.0, // 最初のフレーム
                     width: 320,
                     height: 180,
-                    cancellationToken: default);
+                    cancellationToken: default).ConfigureAwait(false);
 
                 if (thumbnail != null)
                 {
+                    // BitmapSourceがFreezeされているか確認（ThumbnailProviderで既にFreezeされているはず）
+                    // Freezeされていない場合のみFreeze()を試みる
+                    if (!thumbnail.IsFrozen)
+                    {
+                        try
+                        {
+                            // CanFreeze()が可能な場合のみFreeze()を呼び出す
+                            if (thumbnail.CanFreeze)
+                            {
+                                thumbnail.Freeze();
+                            }
+                        }
+                        catch
+                        {
+                            // Freeze()に失敗した場合は、そのまま使用（PixelWidth/PixelHeightは使用可能）
+                        }
+                    }
+                    
+                    // サイズ情報を取得（Freeze後なので、どのスレッドからでもアクセス可能）
+                    int thumbnailWidth = 0;
+                    int thumbnailHeight = 0;
+                    try
+                    {
+                        thumbnailWidth = thumbnail.PixelWidth;
+                        thumbnailHeight = thumbnail.PixelHeight;
+                    }
+                    catch
+                    {
+                        // サイズ取得に失敗した場合は、デフォルト値を使用
+                        thumbnailWidth = 320;
+                        thumbnailHeight = 180;
+                    }
+                    
+                    // UIスレッドでサムネイルを設定
                     await Dispatcher.InvokeAsync(() =>
                     {
                         if (Segment != null)
@@ -239,7 +386,7 @@ namespace Wideor.App.Features.Timeline
                             LogHelper.WriteLog(
                                 "VideoSegmentView.xaml.cs:LoadThumbnailAsync",
                                 "Thumbnail loaded successfully",
-                                new { segmentId = Segment.Id, videoPath = Segment.VideoFilePath });
+                                new { segmentId = Segment.Id, videoPath = Segment.VideoFilePath, width = thumbnailWidth, height = thumbnailHeight });
                         }
                     });
                 }
@@ -303,12 +450,44 @@ namespace Wideor.App.Features.Timeline
                 // 既存のMediaPlayerをクリーンアップ
                 if (_mediaPlayer != null)
                 {
-                    _mediaPlayer.Stop();
-                    _mediaPlayer.Dispose();
+                    // イベントハンドラを先に解除
+                    _disposables?.Dispose();
+                    _disposables = null;
+                    
+                    var oldPlayer = _mediaPlayer;
+                    _mediaPlayer = null;
+                    
+                    // UIスレッドでVideoViewとの関連付けを解除
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (VideoPlayer != null && !_isDisposed)
+                        {
+                            VideoPlayer.MediaPlayer = null;
+                        }
+                    }, DispatcherPriority.Normal);
+                    
+                    // MediaPlayerを停止
+                    try
+                    {
+                        oldPlayer.Stop();
+                    }
+                    catch { }
+                    
+                    // 少し待機してから非同期で破棄（VideoViewの内部処理完了を待つ）
+                    await Task.Delay(50);
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(50);
+                        try
+                        {
+                            oldPlayer.Dispose();
+                        }
+                        catch { }
+                    });
                 }
 
                 // 新しいMediaPlayerを作成
-                _mediaPlayer = new MediaPlayer(_libVLC);
+                _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
                 SetupMediaPlayerEvents();
 
                 // 動画をロード
@@ -318,15 +497,18 @@ namespace Wideor.App.Features.Timeline
                 // VideoViewにMediaPlayerを設定
                 await Dispatcher.InvokeAsync(() =>
                 {
-                    if (VideoPlayer.IsLoaded)
+                    if (VideoPlayer != null && !_isDisposed && VideoPlayer.IsLoaded)
                     {
                         VideoPlayer.MediaPlayer = _mediaPlayer;
                     }
-                    else
+                    else if (VideoPlayer != null && !_isDisposed)
                     {
                         VideoPlayer.Loaded += (s, e) =>
                         {
-                            VideoPlayer.MediaPlayer = _mediaPlayer;
+                            if (!_isDisposed)
+                            {
+                                VideoPlayer.MediaPlayer = _mediaPlayer;
+                            }
                         };
                     }
                 }, DispatcherPriority.Loaded);
@@ -343,7 +525,7 @@ namespace Wideor.App.Features.Timeline
                 LogHelper.WriteLog(
                     "VideoSegmentView.xaml.cs:InitializeAndLoadAsync",
                     "Failed to initialize MediaPlayer",
-                    new { segmentId = Segment?.Id ?? -1, error = ex.Message });
+                    new { segmentId = Segment?.Id ?? -1, error = ex.Message, stackTrace = ex.StackTrace });
                 return false;
             }
         }
@@ -410,7 +592,11 @@ namespace Wideor.App.Features.Timeline
 
         private void MediaPlayer_EndReached(object? sender, EventArgs e)
         {
-            Dispatcher.InvokeAsync(() =>
+            // 注意: EndReachedイベントはネイティブスレッドから発火されるため、
+            // イベントハンドラ内でMediaPlayerを直接破棄するとAccessViolationExceptionが発生する。
+            // そのため、破棄は遅延させて非同期で実行する。
+            
+            Dispatcher.BeginInvoke(() =>
             {
                 _isPlaying = false;
                 if (Segment != null) Segment.State = SegmentState.Stopped;
@@ -427,9 +613,26 @@ namespace Wideor.App.Features.Timeline
                     }
                 }
                 
-                // メモリを解放するためにMediaPlayerをクリーンアップ
-                StopAndCleanup();
-            });
+                // メモリを解放するためにMediaPlayerをクリーンアップ（遅延実行）
+                // イベント処理が完了してから破棄するため、少し遅延させる
+                ScheduleCleanup();
+            }, DispatcherPriority.Background);
+        }
+        
+        /// <summary>
+        /// MediaPlayerのクリーンアップを遅延実行でスケジュール
+        /// イベントハンドラ内から安全に呼び出せる
+        /// </summary>
+        private async void ScheduleCleanup()
+        {
+            // イベント処理が完全に完了するまで少し待機
+            await Task.Delay(100);
+            
+            // UIスレッドでクリーンアップを実行
+            await Dispatcher.InvokeAsync(() =>
+            {
+                StopAndCleanupSafe();
+            }, DispatcherPriority.Background);
         }
 
         private void MediaPlayer_LengthChanged(object? sender, MediaPlayerLengthChangedEventArgs e)
@@ -457,40 +660,132 @@ namespace Wideor.App.Features.Timeline
         }
 
         /// <summary>
-        /// 再生を停止し、リソースをクリーンアップ
+        /// 再生を停止し、リソースをクリーンアップ（安全版 - UI状態もリセット）
+        /// UIスレッドで呼び出すこと、またはUIスレッド外から呼び出すと自動的にUIスレッドに切り替え
         /// </summary>
-        private void StopAndCleanup()
+        private void StopAndCleanupSafe()
         {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(() => StopAndCleanupSafe(), DispatcherPriority.Normal);
+                return;
+            }
+            
+            // イベントハンドラを先に解除
             _disposables?.Dispose();
             _disposables = null;
 
-            if (_mediaPlayer != null)
+            var playerToDispose = _mediaPlayer;
+            _mediaPlayer = null;
+            _isPlaying = false;
+
+            if (playerToDispose != null)
             {
                 try
                 {
-                    _mediaPlayer.Stop();
-                    
                     // VideoViewからMediaPlayerを解除
-                    Dispatcher.Invoke(() =>
+                    if (VideoPlayer != null && !_isDisposed)
                     {
-                        if (VideoPlayer != null)
+                        VideoPlayer.MediaPlayer = null;
+                    }
+                    
+                    // MediaPlayerを停止（既に停止している場合は何もしない）
+                    try
+                    {
+                        playerToDispose.Stop();
+                    }
+                    catch { }
+                    
+                    // 破棄は非同期で遅延実行（VideoViewの内部処理完了を待つ）
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(50);
+                        try
                         {
-                            VideoPlayer.MediaPlayer = null;
+                            playerToDispose.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogHelper.WriteLog(
+                                "VideoSegmentView.xaml.cs:StopAndCleanupSafe",
+                                "Error disposing MediaPlayer",
+                                new { error = ex.Message });
                         }
                     });
-                    
-                    _mediaPlayer.Dispose();
                 }
-                catch { }
-                _mediaPlayer = null;
+                catch (Exception ex)
+                {
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:StopAndCleanupSafe",
+                        "Error during cleanup",
+                        new { error = ex.Message, stackTrace = ex.StackTrace });
+                }
             }
 
-            _isPlaying = false;
-            
-            Dispatcher.InvokeAsync(() =>
+            // UI状態をリセット
+            UpdatePlaybackUI();
+            ProgressSlider.Value = 0;
+            CurrentTimeText.Text = "00:00";
+        }
+        
+        /// <summary>
+        /// 再生を停止し、リソースをクリーンアップ（同期版 - ユーザー操作用）
+        /// </summary>
+        private void StopAndCleanup()
+        {
+            if (!Dispatcher.CheckAccess())
             {
-                UpdatePlaybackUI();
-            });
+                // UIスレッドでない場合はBeginInvokeで非同期実行（デッドロック回避）
+                Dispatcher.BeginInvoke(() => StopAndCleanup(), DispatcherPriority.Normal);
+                return;
+            }
+            
+            // イベントハンドラを先に解除
+            _disposables?.Dispose();
+            _disposables = null;
+
+            var playerToDispose = _mediaPlayer;
+            _mediaPlayer = null;
+            _isPlaying = false;
+
+            if (playerToDispose != null)
+            {
+                try
+                {
+                    // VideoViewからMediaPlayerを解除
+                    if (VideoPlayer != null && !_isDisposed)
+                    {
+                        VideoPlayer.MediaPlayer = null;
+                    }
+                    
+                    // MediaPlayerを停止
+                    try
+                    {
+                        playerToDispose.Stop();
+                    }
+                    catch { }
+                    
+                    // 少し待機してから破棄（非同期）
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(50);
+                        try
+                        {
+                            playerToDispose.Dispose();
+                        }
+                        catch { }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:StopAndCleanup",
+                        "Error during cleanup",
+                        new { error = ex.Message });
+                }
+            }
+
+            UpdatePlaybackUI();
         }
 
         private string FormatTime(double seconds)
@@ -517,17 +812,21 @@ namespace Wideor.App.Features.Timeline
             if (_isPlaying)
             {
                 // 再生中 → 一時停止（サムネイル状態に戻す）
-                StopAndCleanup();
-                ProgressSlider.Value = 0;
-                CurrentTimeText.Text = "00:00";
-                
+                // ロック内で参照をクリアしてからロック外でStopAndCleanupを呼び出す
+                bool shouldClearReference = false;
                 lock (_playbackLock)
                 {
                     if (_currentlyPlayingView == this)
                     {
                         _currentlyPlayingView = null;
+                        shouldClearReference = true;
                     }
                 }
+                
+                // ロック外でStopAndCleanupを実行（デッドロック回避）
+                StopAndCleanup();
+                ProgressSlider.Value = 0;
+                CurrentTimeText.Text = "00:00";
             }
             else
             {
@@ -540,14 +839,13 @@ namespace Wideor.App.Features.Timeline
                     if (_currentlyPlayingView != null && _currentlyPlayingView != this)
                     {
                         previousView = _currentlyPlayingView;
-                        _currentlyPlayingView = null;
                     }
                     
                     // このクリップを現在再生中として設定
                     _currentlyPlayingView = this;
                 }
                 
-                // ロック外で前のクリップを停止（UIスレッドで実行）
+                // ロック外で前のクリップを停止
                 if (previousView != null)
                 {
                     LogHelper.WriteLog(
@@ -558,12 +856,20 @@ namespace Wideor.App.Features.Timeline
                             newSegmentId = Segment.Id 
                         });
                     
-                    previousView.Dispatcher.Invoke(() =>
+                    // 同じUIスレッド上で直接実行（Dispatcherを使わずにデッドロックを回避）
+                    // ただし、previousViewが同じUIスレッドにある場合のみ
+                    if (previousView.Dispatcher == Dispatcher)
                     {
-                        previousView.StopAndCleanup();
-                        previousView.ProgressSlider.Value = 0;
-                        previousView.CurrentTimeText.Text = "00:00";
-                    });
+                        previousView.StopAndCleanupSafe();
+                    }
+                    else
+                    {
+                        // 異なるスレッドの場合は非同期で実行
+                        previousView.Dispatcher.BeginInvoke(() =>
+                        {
+                            previousView.StopAndCleanupSafe();
+                        }, DispatcherPriority.Normal);
+                    }
                 }
                 
                 // MediaPlayerがない場合は初期化
@@ -658,12 +964,74 @@ namespace Wideor.App.Features.Timeline
                 }
             }
 
-            StopAndCleanup();
-
-            if (_libVLC != null)
+            // イベントハンドラを先に解除
+            _disposables?.Dispose();
+            _disposables = null;
+            
+            // MediaPlayerを安全に破棄
+            var playerToDispose = _mediaPlayer;
+            _mediaPlayer = null;
+            
+            if (playerToDispose != null)
             {
-                _libVLC.Dispose();
-                _libVLC = null;
+                // UIスレッドでVideoViewとの関連付けを解除
+                if (Dispatcher.CheckAccess())
+                {
+                    if (VideoPlayer != null)
+                    {
+                        VideoPlayer.MediaPlayer = null;
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        // UIスレッドでない場合はBeginInvokeで非同期実行（デッドロック回避）
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            if (VideoPlayer != null)
+                            {
+                                VideoPlayer.MediaPlayer = null;
+                            }
+                        }, DispatcherPriority.Normal);
+                    }
+                    catch { }
+                }
+                
+                // MediaPlayerを停止して破棄（非同期）
+                try
+                {
+                    playerToDispose.Stop();
+                }
+                catch { }
+                
+                // 破棄は非同期で遅延実行
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(100);
+                    try
+                    {
+                        playerToDispose.Dispose();
+                    }
+                    catch { }
+                });
+            }
+            
+            // LibVLCも非同期で破棄
+            var libVlcToDispose = _libVLC;
+            _libVLC = null;
+            
+            if (libVlcToDispose != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(200);
+                    try
+                    {
+                        libVlcToDispose.Dispose();
+                    }
+                    catch { }
+                });
             }
         }
 
@@ -699,12 +1067,11 @@ namespace Wideor.App.Features.Timeline
             
             if (viewToStop != null)
             {
-                viewToStop.Dispatcher.Invoke(() =>
+                // BeginInvokeを使用してデッドロックを回避（待機しない）
+                viewToStop.Dispatcher.BeginInvoke(() =>
                 {
-                    viewToStop.StopAndCleanup();
-                    viewToStop.ProgressSlider.Value = 0;
-                    viewToStop.CurrentTimeText.Text = "00:00";
-                });
+                    viewToStop.StopAndCleanupSafe();
+                }, DispatcherPriority.Normal);
             }
         }
     }

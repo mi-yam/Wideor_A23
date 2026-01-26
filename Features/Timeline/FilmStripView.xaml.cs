@@ -75,19 +75,26 @@ namespace Wideor.App.Features.Timeline
 
         private void FilmStripView_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (e.HeightChanged)
+            // 幅または高さが変更された場合、クリップの高さを更新
+            if (e.WidthChanged || e.HeightChanged)
             {
                 UpdateClipHeight();
             }
         }
 
         /// <summary>
-        /// クリップの高さを更新（FilmStripViewの高さに基づく）
+        /// クリップの高さを更新（FilmStripViewの幅に基づいて計算）
+        /// 動画のアスペクト比を考慮して、動画がはみ出ないように高さを設定
         /// </summary>
         private void UpdateClipHeight()
         {
-            // FilmStripViewの高さの80%をクリップの高さとして使用（余白を確保）
-            var newHeight = Math.Max(150, ActualHeight * 0.8);
+            // 利用可能な幅を取得
+            var availableWidth = ActualWidth > 0 ? ActualWidth : 640;
+            
+            // 16:9のアスペクト比を仮定して、デフォルトの動画高さを計算
+            // 動画高さ + ヘッダー(25px) + コントロールバー(35px) = 総高さ
+            var defaultVideoHeight = availableWidth * (9.0 / 16.0);
+            var newHeight = Math.Max(150, defaultVideoHeight + 60);
             
             if (Math.Abs(_clipHeight - newHeight) > 1)
             {
@@ -97,7 +104,7 @@ namespace Wideor.App.Features.Timeline
                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
                     "FilmStripView.xaml.cs:UpdateClipHeight",
                     "Clip height updated",
-                    new { clipHeight = _clipHeight, actualHeight = ActualHeight });
+                    new { clipHeight = _clipHeight, actualWidth = ActualWidth, actualHeight = ActualHeight });
             }
         }
 

@@ -27,9 +27,24 @@ namespace Wideor.App.Shared.Domain
         public double Duration => EndTime - StartTime;
 
         /// <summary>
-        /// シーンのタイトルまたは説明
+        /// シーンのタイトル（# で始まる行）
         /// </summary>
         public string? Title { get; init; }
+
+        /// <summary>
+        /// 字幕テキスト（> で始まる行）
+        /// </summary>
+        public string? Subtitle { get; init; }
+
+        /// <summary>
+        /// コンテンツテキスト（セパレータ以下のすべてのテキスト）
+        /// </summary>
+        public string? ContentText { get; init; }
+
+        /// <summary>
+        /// テキストエディタ上の行番号
+        /// </summary>
+        public int LineNumber { get; init; }
 
         /// <summary>
         /// 関連するメディアファイルのパス

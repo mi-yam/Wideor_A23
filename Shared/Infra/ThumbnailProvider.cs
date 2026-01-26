@@ -32,6 +32,7 @@ namespace Wideor.App.Shared.Infra
         private readonly Subject<ThumbnailGenerationProgress> _progressSubject = new();
         private readonly Subject<MediaError> _errorsSubject = new();
         private readonly SemaphoreSlim _semaphore = new(1, 1); // LibVLCインスタンスへのアクセスを直列化
+        private bool _isDisposed = false;
         
         // Video Callbacks用のフィールド（各サムネイル生成ごとに使用）
         private MemoryMappedFile? _currentMappedFile;
@@ -2189,13 +2190,68 @@ namespace Wideor.App.Shared.Infra
 
         public void Dispose()
         {
-            _semaphore?.Dispose();
-            _progressSubject?.OnCompleted();
-            _progressSubject?.Dispose();
-            _errorsSubject?.OnCompleted();
-            _errorsSubject?.Dispose();
+            if (_isDisposed)
+                return;
+
+            _isDisposed = true;
+
+            // Semaphoreを破棄
+            try
+            {
+                _semaphore?.Dispose();
+            }
+            catch { }
+
+            // ProgressSubjectを安全に破棄
+            try
+            {
+                if (_progressSubject != null)
+                {
+                    // OnCompleted()を呼び出す前に、Subjectが破棄されていないかチェック
+                    // Subjectが既に破棄されている場合は例外が発生する可能性があるため、try-catchで保護
+                    _progressSubject.OnCompleted();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Subjectが既に破棄されている場合は無視
+            }
+            catch { }
+
+            try
+            {
+                _progressSubject?.Dispose();
+            }
+            catch { }
+
+            // ErrorsSubjectを安全に破棄
+            try
+            {
+                if (_errorsSubject != null)
+                {
+                    // OnCompleted()を呼び出す前に、Subjectが破棄されていないかチェック
+                    // Subjectが既に破棄されている場合は例外が発生する可能性があるため、try-catchで保護
+                    _errorsSubject.OnCompleted();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Subjectが既に破棄されている場合は無視
+            }
+            catch { }
+
+            try
+            {
+                _errorsSubject?.Dispose();
+            }
+            catch { }
+
             // LibVLCを破棄（MediaPlayerは各サムネイル生成ごとに作成・破棄されるため、ここでは不要）
-            _libVLC?.Dispose();
+            try
+            {
+                _libVLC?.Dispose();
+            }
+            catch { }
         }
 
         // SafeCleanupMediaPlayerSync メソッドを追加

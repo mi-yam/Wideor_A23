@@ -354,139 +354,128 @@ namespace Wideor.App.Shell
                             new { filePath = dialog.FileName });
 
                         var videoFilePath = dialog.FileName;
-                        
+
                         // VideoFilePathを設定
                         TimelineViewModel.VideoFilePath.Value = videoFilePath;
-                        
+
                         Wideor.App.Shared.Infra.LogHelper.WriteLog(
                             "ShellViewModel.cs:LoadVideoCommand",
                             "Before loading video",
                             new { videoFilePath = videoFilePath, hasCommandExecutor = _commandExecutor != null });
 
-                        // PlayerViewModelに動画を読み込む（先に読み込む）
-                        if (PlayerViewModel?.LoadVideoCommand != null)
+                        try
                         {
-                            try
+                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                "ShellViewModel.cs:LoadVideoCommand",
+                                "Starting video load",
+                                new { videoFilePath = videoFilePath });
+
+                            // UIスレッドで直接LoadAsyncを呼び出す（VideoEngine内部でDispatcher.InvokeAsyncを使用しているため）
+                            // Task.Runでラップするとデッドロックが発生する可能性がある
+                            var loadSuccess = await _videoEngine.LoadAsync(videoFilePath, System.Threading.CancellationToken.None).ConfigureAwait(false);
+
+                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                "ShellViewModel.cs:LoadVideoCommand",
+                                "LoadAsync completed",
+                                new { videoFilePath = videoFilePath, success = loadSuccess, isLoaded = PlayerViewModel.IsLoaded?.Value });
+
+                            if (!loadSuccess)
                             {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "ShellViewModel.cs:LoadVideoCommand",
-                                    "Executing LoadVideoCommand",
-                                    new { videoFilePath = videoFilePath });
-                                
-                                // LoadVideoCommandを実行（非同期で実行される）
-                                PlayerViewModel.LoadVideoCommand.Execute(videoFilePath);
-                                
-                                // IsLoadedがtrueになるまで待つ（最大15秒、ポーリング間隔200ms）
-                                var timeout = DateTime.Now.AddSeconds(15);
-                                var checkCount = 0;
-                                while (!PlayerViewModel.IsLoaded.Value && DateTime.Now < timeout)
+                                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
-                                    await Task.Delay(200);
+                                    System.Windows.MessageBox.Show(
+                                        "動画の読み込みに失敗しました。",
+                                        "エラー",
+                                        System.Windows.MessageBoxButton.OK,
+                                        System.Windows.MessageBoxImage.Error);
+                                });
+                                return;
+                            }
+
+                            // TotalDurationが取得できるまで待つ（最大10秒、ポーリング間隔200ms）
+                            var timeout = DateTime.Now.AddSeconds(10);
+                            var checkCount = 0;
+                            double totalDuration = 0;
+                            while (totalDuration <= 0 && DateTime.Now < timeout)
+                            {
+                                totalDuration = PlayerViewModel.TotalDuration.Value;
+                                if (totalDuration <= 0)
+                                {
+                                    await Task.Delay(200).ConfigureAwait(false);
                                     checkCount++;
-                                    
-                                    // 5秒ごとにログを出力
-                                    if (checkCount % 25 == 0)
+
+                                    // 2秒ごとにログを出力
+                                    if (checkCount % 10 == 0)
                                     {
                                         Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                             "ShellViewModel.cs:LoadVideoCommand",
-                                            "Waiting for video to load",
+                                            "Waiting for TotalDuration",
                                             new { videoFilePath = videoFilePath, checkCount = checkCount, elapsedSeconds = checkCount * 0.2 });
                                     }
                                 }
-                                
-                                if (!PlayerViewModel.IsLoaded.Value)
-                                {
-                                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                        "ShellViewModel.cs:LoadVideoCommand",
-                                        "Video loading timeout",
-                                        new { videoFilePath = videoFilePath, checkCount = checkCount });
-                                    System.Windows.MessageBox.Show(
-                                        "動画の読み込みがタイムアウトしました。",
-                                        "エラー",
-                                        System.Windows.MessageBoxButton.OK,
-                                        System.Windows.MessageBoxImage.Warning);
-                                    return;
-                                }
-                                
+                            }
+
+                            if (totalDuration <= 0)
+                            {
                                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                     "ShellViewModel.cs:LoadVideoCommand",
-                                    "Video loaded, waiting for TotalDuration",
-                                    new { videoFilePath = videoFilePath, isLoaded = PlayerViewModel.IsLoaded.Value });
-                                
-                                // TotalDurationが取得できるまで待つ（最大10秒、ポーリング間隔200ms）
-                                timeout = DateTime.Now.AddSeconds(10);
-                                checkCount = 0;
-                                double totalDuration = 0;
-                                while (totalDuration <= 0 && DateTime.Now < timeout)
+                                    "TotalDuration not available",
+                                    new { videoFilePath = videoFilePath, checkCount = checkCount });
+                                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
-                                    totalDuration = PlayerViewModel.TotalDuration.Value;
-                                    if (totalDuration <= 0)
-                                    {
-                                        await Task.Delay(200);
-                                        checkCount++;
-                                        
-                                        // 2秒ごとにログを出力
-                                        if (checkCount % 10 == 0)
-                                        {
-                                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                                "ShellViewModel.cs:LoadVideoCommand",
-                                                "Waiting for TotalDuration",
-                                                new { videoFilePath = videoFilePath, checkCount = checkCount, elapsedSeconds = checkCount * 0.2 });
-                                        }
-                                    }
-                                }
-                                
-                                if (totalDuration <= 0)
-                                {
-                                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                        "ShellViewModel.cs:LoadVideoCommand",
-                                        "TotalDuration not available",
-                                        new { videoFilePath = videoFilePath, checkCount = checkCount });
                                     System.Windows.MessageBox.Show(
                                         "動画の長さを取得できませんでした。",
                                         "エラー",
                                         System.Windows.MessageBoxButton.OK,
                                         System.Windows.MessageBoxImage.Warning);
-                                    return;
-                                }
-                                
+                                });
+                                return;
+                            }
+
+                            // UIスレッドでTimelineViewModelを更新
+                            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                            {
                                 TimelineViewModel.TotalDuration.Value = totalDuration;
-                                
-                                // TimelineViewModelに現在ロード済みの動画パスを設定
                                 TimelineViewModel.SetCurrentLoadedVideoPath(videoFilePath);
-                                
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "ShellViewModel.cs:LoadVideoCommand",
-                                    "TotalDuration obtained, executing LOAD command",
-                                    new { videoFilePath = videoFilePath, totalDuration = totalDuration });
-                                
-                                // LOADコマンドを実行してVideoSegmentを作成
+                            });
+
+                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                "ShellViewModel.cs:LoadVideoCommand",
+                                "TotalDuration obtained, executing LOAD command",
+                                new { videoFilePath = videoFilePath, totalDuration = totalDuration });
+
+                            // LOADコマンドを実行してVideoSegmentを作成（UIスレッドで実行）
+                            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                            {
                                 var loadCommand = new Wideor.App.Shared.Domain.EditCommand
                                 {
                                     Type = Wideor.App.Shared.Domain.CommandType.Load,
                                     FilePath = videoFilePath
                                 };
-                                
-                                _commandExecutor.ExecuteCommand(loadCommand);
 
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "ShellViewModel.cs:LoadVideoCommand",
-                                    "LOAD command executed after video loaded, VideoSegment created",
-                                    new { videoFilePath = videoFilePath, duration = totalDuration, segmentCount = _segmentManager.Segments.Count });
-                            }
-                            catch (Exception ex)
+                                _commandExecutor.ExecuteCommand(loadCommand);
+                            });
+
+                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                "ShellViewModel.cs:LoadVideoCommand",
+                                "LOAD command executed after video loaded, VideoSegment created",
+                                new { videoFilePath = videoFilePath, duration = totalDuration, segmentCount = _segmentManager.Segments.Count });
+                        }
+                        catch (Exception ex)
+                        {
+                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                "ShellViewModel.cs:LoadVideoCommand",
+                                "Exception loading video or executing LOAD command",
+                                new { videoFilePath = videoFilePath, exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+
+                            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                             {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "ShellViewModel.cs:LoadVideoCommand",
-                                    "Exception loading video or executing LOAD command",
-                                    new { videoFilePath = videoFilePath, exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
-                                
                                 System.Windows.MessageBox.Show(
                                     $"動画の読み込みに失敗しました。\n{ex.Message}",
                                     "エラー",
                                     System.Windows.MessageBoxButton.OK,
                                     System.Windows.MessageBoxImage.Error);
-                            }
+                            });
                         }
                     }
                     else

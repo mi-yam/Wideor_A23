@@ -204,11 +204,12 @@ namespace Wideor.App.Features.Timeline
 
                 if (totalDuration <= 0)
                 {
+                    // 初期化時やTotalDurationが未設定の場合は正常な動作なので、ログレベルを下げる
                     // #region agent log
                     Wideor.App.Shared.Infra.LogHelper.WriteLog(
                         "TimeRulerView.xaml.cs:UpdateRuler",
-                        "Invalid parameters, skipping update",
-                        new { totalDuration });
+                        "TotalDuration not set yet, skipping update",
+                        new { totalDuration, hasViewModel = ViewModel != null });
                     // #endregion
                     return;
                 }

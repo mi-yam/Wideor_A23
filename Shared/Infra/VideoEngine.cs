@@ -99,25 +99,45 @@ namespace Wideor.App.Shared.Infra
                     "Starting video load",
                     new { filePath = filePath, hasMediaPlayer = _mediaPlayer != null });
 
-                // MediaPlayerがnullの場合は作成（UIスレッドで実行）
+                // Ensure MediaPlayer is created on UI thread
                 if (_mediaPlayer == null)
                 {
-                    _mediaPlayer = new MediaPlayer(_libVLC);
-                    SetupMediaPlayerEvents();
+                    if (System.Windows.Application.Current != null && !System.Windows.Application.Current.Dispatcher.CheckAccess())
+                    {
+                        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            _mediaPlayer = new MediaPlayer(_libVLC);
+                            SetupMediaPlayerEvents();
+                        });
+                    }
+                    else
+                    {
+                        _mediaPlayer = new MediaPlayer(_libVLC);
+                        SetupMediaPlayerEvents();
+                    }
                 }
 
-                // Mediaを作成（UIスレッドで実行）
-                var media = new Media(_libVLC, filePath, FromType.FromPath);
-                
-                // MediaPlayerにMediaを設定（UIスレッドで実行）
-                // これによりLengthChangedイベントが発火する可能性がある
-                _mediaPlayer.Media = media;
-                
+                // Create Media and assign to MediaPlayer on UI thread
+                Media media = null;
+                if (System.Windows.Application.Current != null && !System.Windows.Application.Current.Dispatcher.CheckAccess())
+                {
+                    await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        media = new Media(_libVLC, filePath, FromType.FromPath);
+                        _mediaPlayer.Media = media;
+                    });
+                }
+                else
+                {
+                    media = new Media(_libVLC, filePath, FromType.FromPath);
+                    _mediaPlayer.Media = media;
+                }
+
                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
                     "VideoEngine.cs:LoadAsync",
                     "Media set",
                     new { filePath = filePath, mediaDuration = media.Duration, playerLength = _mediaPlayer.Length });
-                
+
                 // Media.Parse()をバックグラウンドスレッドで実行（UIスレッドでawaitするとデッドロックが発生する可能性がある）
                 try
                 {
@@ -125,7 +145,7 @@ namespace Wideor.App.Shared.Infra
                     {
                         try
                         {
-                            await media.Parse(MediaParseOptions.ParseLocal | MediaParseOptions.FetchLocal, 5000);
+                            await media.Parse(MediaParseOptions.ParseLocal | MediaParseOptions.FetchLocal,5000);
                         }
                         catch (Exception parseEx)
                         {
@@ -145,31 +165,31 @@ namespace Wideor.App.Shared.Infra
                         new { filePath = filePath, exceptionType = parseTaskEx.GetType().Name, message = parseTaskEx.Message });
                     // Parseに失敗しても続行（LengthChangedイベントでDurationを取得できる可能性がある）
                 }
-                
+
                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
                     "VideoEngine.cs:LoadAsync",
                     "Media Parse completed",
                     new { filePath = filePath, parsedStatus = media.ParsedStatus.ToString(), mediaDuration = media.Duration, playerLength = _mediaPlayer.Length });
-                
+
                 // Media.Parse()後は、Media.Durationから直接取得できる
-                // ただし、UIスレッドで確認する必要がある
-                double duration = 0;
-                if (media.Duration > 0)
+                //ただし、UIスレッドで確認する必要がある
+                double duration =0;
+                if (media.Duration >0)
                 {
-                    duration = media.Duration / 1000.0; // ミリ秒から秒に変換
+                    duration = media.Duration /1000.0; // ミリ秒から秒に変換
                     _totalDuration.OnNext(duration);
-                    
+
                     Wideor.App.Shared.Infra.LogHelper.WriteLog(
                         "VideoEngine.cs:LoadAsync",
                         "Media parsed, TotalDuration updated from Media.Duration",
                         new { filePath = filePath, mediaDuration = media.Duration, totalDuration = duration });
                 }
-                else if (_mediaPlayer.Length > 0)
+                else if (_mediaPlayer.Length >0)
                 {
                     // MediaPlayer.Lengthが既に取得できている場合
-                    duration = _mediaPlayer.Length / 1000.0; // ミリ秒から秒に変換
+                    duration = _mediaPlayer.Length /1000.0; // ミリ秒から秒に変換
                     _totalDuration.OnNext(duration);
-                    
+
                     Wideor.App.Shared.Infra.LogHelper.WriteLog(
                         "VideoEngine.cs:LoadAsync",
                         "TotalDuration updated from MediaPlayer.Length",
@@ -181,24 +201,24 @@ namespace Wideor.App.Shared.Infra
                     // LengthChangedイベントは既にSetupMediaPlayerEvents()で購読されているため、
                     // イベントが発火するまで短時間待機する
                     var timeout = DateTime.Now.AddSeconds(3);
-                    var waitCount = 0;
-                    
+                    var waitCount =0;
+
                     while (_mediaPlayer.Length == -1 && DateTime.Now < timeout && !cancellationToken.IsCancellationRequested)
                     {
-                        await Task.Delay(50, cancellationToken); // 50ms間隔でチェック
+                        await Task.Delay(50, cancellationToken); //50ms間隔でチェック
                         waitCount++;
                     }
-                    
+
                     Wideor.App.Shared.Infra.LogHelper.WriteLog(
                         "VideoEngine.cs:LoadAsync",
                         "After waiting for MediaPlayer.Length",
                         new { filePath = filePath, length = _mediaPlayer.Length, waitCount = waitCount, timedOut = _mediaPlayer.Length == -1 });
-                    
-                    if (_mediaPlayer.Length > 0)
+
+                    if (_mediaPlayer.Length >0)
                     {
-                        duration = _mediaPlayer.Length / 1000.0; // ミリ秒から秒に変換
+                        duration = _mediaPlayer.Length /1000.0; // ミリ秒から秒に変換
                         _totalDuration.OnNext(duration);
-                        
+
                         Wideor.App.Shared.Infra.LogHelper.WriteLog(
                             "VideoEngine.cs:LoadAsync",
                             "TotalDuration updated from MediaPlayer.Length after wait",
@@ -210,19 +230,19 @@ namespace Wideor.App.Shared.Infra
                             "VideoEngine.cs:LoadAsync",
                             "Duration not available (will be updated by LengthChanged event)",
                             new { filePath = filePath, mediaDuration = media.Duration, playerLength = _mediaPlayer.Length });
-                        
+
                         // Durationが取得できない場合でも、読み込みは成功とする
                         // LengthChangedイベントで後から更新される
                     }
                 }
 
                 _isLoaded.OnNext(true);
-                
+
                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
                     "VideoEngine.cs:LoadAsync",
                     "LoadAsync completed successfully",
                     new { filePath = filePath, hasMediaPlayer = _mediaPlayer != null, hasMedia = _mediaPlayer?.Media != null, isLoaded = _isLoaded.Value, duration = duration });
-                
+
                 return true;
             }
             catch (Exception ex)
@@ -231,7 +251,7 @@ namespace Wideor.App.Shared.Infra
                     "VideoEngine.cs:LoadAsync",
                     "Exception in LoadAsync",
                     new { filePath = filePath, exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace, innerException = ex.InnerException?.ToString() });
-                
+
                 ReportError(MediaErrorType.Unknown, $"動画の読み込みに失敗しました: {ex.Message}", ex);
                 _isLoaded.OnNext(false);
                 return false;

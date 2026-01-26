@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using Reactive.Bindings;
 using Reactive.Bindings.Extensions;
@@ -15,11 +17,17 @@ namespace Wideor.App.Features.Editor
     /// <summary>
     /// エディタ機能のViewModel。
     /// テキストの変更をIProjectContextに反映し、アンカーボタンのロジックを管理します。
+    /// Header/Bodyパース機能とCommandExecutorとの統合も行います。
     /// </summary>
     public class EditorViewModel : IDisposable
     {
         private readonly IProjectContext _projectContext;
         private readonly IScrollCoordinator _scrollCoordinator;
+        private readonly IHeaderParser _headerParser;
+        private readonly ISceneParser _sceneParser;
+        private readonly ICommandParser _commandParser;
+        private readonly ICommandExecutor _commandExecutor;
+        private readonly IVideoSegmentManager _segmentManager;
         private readonly AnchorLogic _anchorLogic;
         private readonly CompositeDisposable _disposables = new();
 
@@ -29,6 +37,11 @@ namespace Wideor.App.Features.Editor
         /// エディタのテキスト内容
         /// </summary>
         public ReactiveProperty<string> Text { get; }
+
+        /// <summary>
+        /// プロジェクト設定（Headerから生成）
+        /// </summary>
+        public ReactiveProperty<ProjectConfig> ProjectConfig { get; }
 
         /// <summary>
         /// アンカーボタンの状態（未確定）
@@ -68,17 +81,36 @@ namespace Wideor.App.Features.Editor
         public ReactiveCommand AnchorClickCommand { get; }
 
         private string _lastProcessedText = string.Empty;
+        private string _previousCommandsHash = string.Empty;
+        private bool _isParsing = false;
 
         public EditorViewModel(
             IProjectContext projectContext,
-            IScrollCoordinator scrollCoordinator)
+            IScrollCoordinator scrollCoordinator,
+            IHeaderParser? headerParser = null,
+            ISceneParser? sceneParser = null,
+            ICommandParser? commandParser = null,
+            ICommandExecutor? commandExecutor = null,
+            IVideoSegmentManager? segmentManager = null)
         {
             _projectContext = projectContext ?? throw new ArgumentNullException(nameof(projectContext));
             _scrollCoordinator = scrollCoordinator ?? throw new ArgumentNullException(nameof(scrollCoordinator));
+            
+            // オプショナルな依存関係（DI未設定時はnull）
+            _headerParser = headerParser ?? new HeaderParser();
+            _sceneParser = sceneParser ?? new Wideor.App.Shared.Infra.SceneParser();
+            _commandParser = commandParser!;
+            _commandExecutor = commandExecutor!;
+            _segmentManager = segmentManager!;
+            
             _anchorLogic = new AnchorLogic();
 
             // プロパティの初期化
             Text = new ReactiveProperty<string>(string.Empty)
+                .AddTo(_disposables);
+
+            // プロジェクト設定の初期化
+            ProjectConfig = new ReactiveProperty<ProjectConfig>(new ProjectConfig())
                 .AddTo(_disposables);
 
             CurrentPlaybackPosition = _projectContext.CurrentPlaybackPosition
@@ -156,21 +188,80 @@ namespace Wideor.App.Features.Editor
 
         /// <summary>
         /// テキスト変更を処理してIProjectContextに反映
+        /// Header/Bodyパース機能とCommandExecutorとの統合を行います。
         /// </summary>
         private void ProcessTextChange(string text)
         {
             if (text == _lastProcessedText)
                 return;
 
+            // 再帰的な更新を防ぐ
+            if (_isParsing)
+                return;
+
             _lastProcessedText = text;
 
             try
             {
-                // テキストからSceneBlockを生成
-                var scenes = SceneParser.Parse(text);
+                _isParsing = true;
+
+                LogHelper.WriteLog(
+                    "EditorViewModel:ProcessTextChange",
+                    "Text changed, starting parse",
+                    new { textLength = text.Length });
+
+                // ステップ1: Headerをパース
+                var (projectConfig, bodyStartLine) = _headerParser.ParseHeader(text);
+                
+                // プロジェクト設定を更新
+                ProjectConfig.Value = projectConfig;
+
+                LogHelper.WriteLog(
+                    "EditorViewModel:ProcessTextChange",
+                    "Header parsed",
+                    new { projectName = projectConfig.ProjectName, bodyStartLine = bodyStartLine });
+
+                // ステップ2: Body部分のテキストを抽出
+                var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                var bodyLines = lines.Skip(bodyStartLine);
+                var bodyText = string.Join("\n", bodyLines);
+
+                // ステップ3: Bodyのコマンドをパース（CommandParserが利用可能な場合）
+                if (_commandParser != null)
+                {
+                    var commands = _commandParser.ParseCommands(bodyText);
+
+                    // コマンドのハッシュ値を計算（差分検出）
+                    var currentHash = CalculateCommandsHash(commands);
+
+                    // 前回と異なる場合のみ実行
+                    if (currentHash != _previousCommandsHash)
+                    {
+                        _previousCommandsHash = currentHash;
+
+                        // セグメントマネージャーをクリアして再構築
+                        if (_segmentManager != null)
+                        {
+                            _segmentManager.Clear();
+                        }
+
+                        // コマンドを実行
+                        if (_commandExecutor != null)
+                        {
+                            _commandExecutor.ExecuteCommands(commands);
+                        }
+
+                        LogHelper.WriteLog(
+                            "EditorViewModel:ProcessTextChange",
+                            "Commands executed",
+                            new { commandCount = commands.Count });
+                    }
+                }
+
+                // ステップ4: Bodyのシーン（パラグラフ）をパース
+                var scenes = _sceneParser.ParseScenes(bodyText);
 
                 // IProjectContextのSceneBlocksを更新
-                // 既存のシーンブロックをすべて削除してから追加
                 var existingScenes = _projectContext.SceneBlocks.Value?.ToList() ?? new List<SceneBlock>();
                 foreach (var scene in existingScenes)
                 {
@@ -182,11 +273,51 @@ namespace Wideor.App.Features.Editor
                 {
                     _projectContext.AddSceneBlock(scene);
                 }
+
+                LogHelper.WriteLog(
+                    "EditorViewModel:ProcessTextChange",
+                    "Parse completed",
+                    new { sceneCount = scenes.Count });
             }
             catch (Exception ex)
             {
-                // エラーハンドリング（必要に応じてログ出力など）
+                LogHelper.WriteLog(
+                    "EditorViewModel:ProcessTextChange",
+                    "Error during parse",
+                    new { exceptionType = ex.GetType().Name, message = ex.Message });
+                
                 System.Diagnostics.Debug.WriteLine($"テキスト解析エラー: {ex.Message}");
+            }
+            finally
+            {
+                _isParsing = false;
+            }
+        }
+
+        /// <summary>
+        /// コマンドリストからハッシュ値を計算（差分検出用）
+        /// </summary>
+        private string CalculateCommandsHash(List<EditCommand> commands)
+        {
+            var commandStrings = commands.Select(cmd =>
+            {
+                return cmd.Type switch
+                {
+                    CommandType.Load => $"LOAD:{cmd.FilePath}",
+                    CommandType.Cut => $"CUT:{cmd.Time}",
+                    CommandType.Hide => $"HIDE:{cmd.StartTime}:{cmd.EndTime}",
+                    CommandType.Show => $"SHOW:{cmd.StartTime}:{cmd.EndTime}",
+                    CommandType.Delete => $"DELETE:{cmd.StartTime}:{cmd.EndTime}",
+                    _ => string.Empty
+                };
+            });
+
+            var combined = string.Join("|", commandStrings);
+
+            using (var sha256 = SHA256.Create())
+            {
+                var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(combined));
+                return Convert.ToBase64String(hashBytes);
             }
         }
 

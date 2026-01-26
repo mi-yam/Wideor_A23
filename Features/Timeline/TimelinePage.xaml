@@ -19,8 +19,8 @@
             <Grid.ColumnDefinitions>
                 <!-- C1: Time Ruler Area (60px固定) -->
                 <ColumnDefinition Width="60" MinWidth="60" MaxWidth="60" />
-                <!-- C2: Film Area (可変、最小640px) -->
-                <ColumnDefinition Width="*" MinWidth="640" />
+                <!-- C2: Film Area (可変、最小260px - 動画の最小サイズに合わせる) -->
+                <ColumnDefinition Width="*" MinWidth="260" />
                 <!-- GridSplitter -->
                 <ColumnDefinition Width="4" />
             </Grid.ColumnDefinitions>

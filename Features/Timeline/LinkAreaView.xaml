@@ -1,0 +1,25 @@
+<UserControl x:Class="Wideor.App.Features.Timeline.LinkAreaView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:Wideor.App.Features.Timeline"
+             mc:Ignorable="d" 
+             d:DesignHeight="450" d:DesignWidth="80"
+             Width="80"
+             Background="#1F1F1F">
+    
+    <Grid>
+        <!-- 台形描画用Canvas -->
+        <Canvas x:Name="LinkCanvas" 
+                ClipToBounds="True"
+                Background="Transparent">
+            <!-- 台形はコードビハインドで動的に生成 -->
+        </Canvas>
+        
+        <!-- 左右のボーダーライン -->
+        <Border BorderBrush="#444444" 
+                BorderThickness="1,0,1,0" 
+                IsHitTestVisible="False"/>
+    </Grid>
+</UserControl>

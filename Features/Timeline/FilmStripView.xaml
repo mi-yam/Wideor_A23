@@ -28,7 +28,6 @@
                       Background="#1A1A1A"
                       ScrollChanged="FilmStripScrollViewer_ScrollChanged">
             <ItemsControl x:Name="FilmStripItemsControl" 
-                          ItemsSource="{Binding VideoSegments}"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Top"
                           Background="#1A1A1A">
