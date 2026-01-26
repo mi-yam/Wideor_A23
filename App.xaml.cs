@@ -22,6 +22,11 @@ namespace Wideor_A23
     {
         private ServiceProvider? _serviceProvider;
 
+        /// <summary>
+        /// DIコンテナのServiceProvider（外部からアクセス可能）
+        /// </summary>
+        public static ServiceProvider? ServiceProvider => (Current as App)?._serviceProvider;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
@@ -95,18 +100,50 @@ namespace Wideor_A23
             // ITimeRulerService
             services.AddSingleton<ITimeRulerService, StubTimeRulerService>();
 
-            // IThumbnailProvider
-            services.AddSingleton<IThumbnailProvider, Wideor.App.Shared.Infra.ThumbnailProvider>();
+            // IThumbnailCache
+            services.AddSingleton<IThumbnailCache, Wideor.App.Shared.Infra.ThumbnailCache>();
+
+            // IThumbnailProvider (ベース実装)
+            services.AddSingleton<Wideor.App.Shared.Infra.ThumbnailProvider>();
+
+            // IThumbnailProvider (高度な実装)
+            services.AddSingleton<IThumbnailProvider>(sp =>
+            {
+                var baseProvider = sp.GetRequiredService<Wideor.App.Shared.Infra.ThumbnailProvider>();
+                var cache = sp.GetRequiredService<IThumbnailCache>();
+                return new Wideor.App.Shared.Infra.AdvancedThumbnailProvider(baseProvider, cache);
+            });
 
             // IVideoEngine
             services.AddSingleton<IVideoEngine, Wideor.App.Shared.Infra.VideoEngine>();
+
+            // ICommandParser
+            services.AddSingleton<ICommandParser, Wideor.App.Shared.Infra.CommandParser>();
+
+            // IVideoSegmentManager
+            services.AddSingleton<IVideoSegmentManager, Wideor.App.Shared.Infra.VideoSegmentManager>();
+
+            // ICommandExecutor
+            services.AddSingleton<ICommandExecutor, Wideor.App.Shared.Infra.CommandExecutor>();
 
             // --- Feature ViewModels ---
             // 注: ViewModelは通常、Viewごとに新しいインスタンスが必要なためTransientまたはScoped
             // ただし、ShellViewModelが所有するため、ここでは登録しない
 
             // --- Shell ---
-            services.AddTransient<ShellViewModel>();
+            // ShellViewModelを登録（IThumbnailCacheを注入）
+            services.AddSingleton<ShellViewModel>(sp =>
+            {
+                var projectContext = sp.GetRequiredService<IProjectContext>();
+                var scrollCoordinator = sp.GetRequiredService<IScrollCoordinator>();
+                var timeRulerService = sp.GetRequiredService<ITimeRulerService>();
+                var videoEngine = sp.GetRequiredService<IVideoEngine>();
+                var segmentManager = sp.GetRequiredService<IVideoSegmentManager>();
+                var commandExecutor = sp.GetRequiredService<ICommandExecutor>();
+                var commandParser = sp.GetRequiredService<ICommandParser>();
+                var thumbnailCache = sp.GetRequiredService<IThumbnailCache>();
+                return new ShellViewModel(projectContext, scrollCoordinator, timeRulerService, videoEngine, segmentManager, commandExecutor, commandParser, thumbnailCache);
+            });
             services.AddTransient<ShellWindow>();
         }
 
@@ -263,6 +300,11 @@ namespace Wideor_A23
                 if (error != null)
                     _errors.Remove(error);
             }
+        }
+
+        public void SetThumbnailData(Wideor.App.Shared.Domain.ThumbnailData? thumbnailData, string? videoFilePath = null)
+        {
+            // スタブ実装：何もしない
         }
     }
 
@@ -433,6 +475,11 @@ namespace Wideor_A23
         public System.Threading.Tasks.Task<System.Windows.Media.Imaging.BitmapSource?> GenerateThumbnailFromImageAsync(
             string imageFilePath, int width = 160, int height = 90, System.Threading.CancellationToken cancellationToken = default) =>
             System.Threading.Tasks.Task.FromResult<System.Windows.Media.Imaging.BitmapSource?>(null);
+
+        public void Dispose()
+        {
+            // スタブ実装：何もしない
+        }
     }
 
     internal class StubVideoEngine : IVideoEngine
@@ -450,6 +497,16 @@ namespace Wideor_A23
         public System.IObservable<bool> IsPlaying => _isPlaying;
         public System.IObservable<bool> IsLoaded => _isLoaded;
         public System.IObservable<Wideor.App.Shared.Domain.MediaError> Errors => _errors;
+        
+        /// <summary>
+        /// 動画の総時間の現在値（秒）
+        /// </summary>
+        public double CurrentTotalDuration => _totalDuration.Value;
+        
+        /// <summary>
+        /// 動画の読み込み状態の現在値
+        /// </summary>
+        public bool CurrentIsLoaded => _isLoaded.Value;
 
         public System.Threading.Tasks.Task<bool> LoadAsync(string filePath, System.Threading.CancellationToken cancellationToken = default)
         {
@@ -475,5 +532,11 @@ namespace Wideor_A23
             _isLoaded.Dispose();
             _errors.Dispose();
         }
+    }
+
+    internal class StubCommandExecutor : ICommandExecutor
+    {
+        public void ExecuteCommand(EditCommand command) { /* スタブ: 何もしない */ }
+        public void ExecuteCommands(IEnumerable<EditCommand> commands) { /* スタブ: 何もしない */ }
     }
 }

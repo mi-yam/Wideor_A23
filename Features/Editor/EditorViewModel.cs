@@ -67,7 +67,6 @@ namespace Wideor.App.Features.Editor
         /// </summary>
         public ReactiveCommand AnchorClickCommand { get; }
 
-        private readonly System.Threading.Timer? _textChangeTimer;
         private string _lastProcessedText = string.Empty;
 
         public EditorViewModel(
@@ -255,7 +254,6 @@ namespace Wideor.App.Features.Editor
 
         public void Dispose()
         {
-            _textChangeTimer?.Dispose();
             _anchorLogic?.Dispose();
             _disposables?.Dispose();
         }

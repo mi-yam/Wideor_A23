@@ -33,6 +33,7 @@ namespace Wideor.App.Features.Editor
                 typeof(EditorView),
                 new PropertyMetadata(null, OnViewModelChanged));
 
+
         private CompositeDisposable? _disposables;
 
         public EditorView()
@@ -201,5 +202,6 @@ namespace Wideor.App.Features.Editor
             }
             return null;
         }
+
     }
 }

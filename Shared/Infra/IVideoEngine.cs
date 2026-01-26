@@ -25,6 +25,11 @@ namespace Wideor.App.Shared.Infra
         /// 動画の総時間（秒）
         /// </summary>
         IObservable<double> TotalDuration { get; }
+        
+        /// <summary>
+        /// 動画の総時間の現在値（秒）
+        /// </summary>
+        double CurrentTotalDuration { get; }
 
         /// <summary>
         /// 再生状態（true: 再生中, false: 停止/一時停止）
@@ -35,6 +40,11 @@ namespace Wideor.App.Shared.Infra
         /// 動画の読み込み状態
         /// </summary>
         IObservable<bool> IsLoaded { get; }
+        
+        /// <summary>
+        /// 動画の読み込み状態の現在値
+        /// </summary>
+        bool CurrentIsLoaded { get; }
 
         /// <summary>
         /// エラーが発生した場合に通知されるストリーム

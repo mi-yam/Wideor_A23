@@ -74,6 +74,12 @@ namespace Wideor.App.Features.Timeline
             
             // マウスホイールイベントを購読
             MouseWheel += TimelinePage_MouseWheel;
+            
+            // キーボードイベントを購読（エンターキーで分割）
+            KeyDown += TimelinePage_KeyDown;
+            
+            // フォーカスを受け取れるようにする
+            Focusable = true;
         }
         
         private void TimelinePage_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
@@ -118,6 +124,17 @@ namespace Wideor.App.Features.Timeline
                     "TimelinePage.xaml.cs:DataContextChanged",
                     "ViewModel set from DataContext",
                     new { hasViewModel = ViewModel != null });
+            }
+        }
+
+        private void TimelinePage_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter && ViewModel != null)
+            {
+                // 現在の再生位置で分割
+                var currentTime = ViewModel.CurrentPosition.Value;
+                ViewModel.CutAtCurrentTime(currentTime);
+                e.Handled = true;
             }
         }
     }

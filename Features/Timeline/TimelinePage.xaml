@@ -7,89 +7,60 @@
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
 
-    <Grid Background="#1A1A1A">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <!-- ツールバー（ズームコントロールなど） -->
-        <Border Grid.Row="0"
-                Background="#2A2A2A"
-                BorderBrush="#444444"
-                BorderThickness="0,0,0,1"
-                Padding="8">
-            <StackPanel Orientation="Horizontal">
-                <Button Content="🔍+"
-                       Command="{Binding ZoomInCommand}"
-                       Width="40"
-                       Height="30"
-                       Margin="0,0,4,0"
-                       ToolTip="ズームイン (Ctrl + マウスホイール上でも可能)" />
-                <Button Content="🔍-"
-                       Command="{Binding ZoomOutCommand}"
-                       Width="40"
-                       Height="30"
-                       Margin="0,0,4,0"
-                       ToolTip="ズームアウト (Ctrl + マウスホイール下でも可能)" />
-                <Button Content="🔍"
-                       Command="{Binding ZoomResetCommand}"
-                       Width="40"
-                       Height="30"
-                       Margin="0,0,8,0"
-                       ToolTip="ズームリセット (100 px/s)" />
-                <TextBlock Text="{Binding PixelsPerSecond.Value, StringFormat='ズーム: {0:F1} px/s'}"
-                          Foreground="White"
-                          VerticalAlignment="Center"
-                          Margin="8,0,8,0" />
-                <TextBlock Text="{Binding VideoFrameRate.Value, StringFormat='動画: {0:F1} fps'}"
-                          Foreground="#AAAAAA"
-                          VerticalAlignment="Center"
-                          Margin="0,0,8,0" />
-                <TextBlock Text="表示:"
-                          Foreground="White"
-                          VerticalAlignment="Center"
-                          Margin="0,0,4,0" />
-                <TextBox Text="{Binding DisplayFrameRate.Value, UpdateSourceTrigger=PropertyChanged}"
-                        Width="50"
-                        Height="25"
-                        VerticalContentAlignment="Center"
-                        Margin="0,0,2,0"
-                        ToolTip="表示フレームレート (fps) - タイムラインに表示するフレームレート" />
-                <TextBlock Text="fps"
-                          Foreground="White"
-                          VerticalAlignment="Center"
-                          Margin="0,0,8,0" />
-            </StackPanel>
-        </Border>
-
-        <!-- タイムラインコンテンツ（C1: TimeRuler, C2: FilmStrip） -->
-        <Grid Grid.Row="1">
+    <Grid Background="#1A1A1A"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+          ClipToBounds="True">
+        <!-- タイムラインコンテンツ（C1: TimeRuler, C2: FilmStrip, C3: GridSplitter） -->
+        <Grid Focusable="True"
+              HorizontalAlignment="Stretch"
+              VerticalAlignment="Stretch"
+              ClipToBounds="True">
             <Grid.ColumnDefinitions>
+                <!-- C1: Time Ruler Area (60px固定) -->
                 <ColumnDefinition Width="60" MinWidth="60" MaxWidth="60" />
-                <ColumnDefinition Width="*" />
+                <!-- C2: Film Area (可変、最小640px) -->
+                <ColumnDefinition Width="*" MinWidth="640" />
+                <!-- GridSplitter -->
+                <ColumnDefinition Width="4" />
             </Grid.ColumnDefinitions>
+            
+            <!-- 背景を設定して余白を黒くする -->
+            <Border Grid.Column="1"
+                    Background="#1A1A1A"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch" />
 
             <!-- C1: TimeRulerView（左側） -->
             <local:TimeRulerView x:Name="TimeRulerView"
                                 Grid.Column="0"
-                                ViewModel="{Binding}"
+                                ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
                                 BorderBrush="#444444"
-                                BorderThickness="0,0,1,0"
-                                Height="30"
-                                VerticalAlignment="Top" />
+                                BorderThickness="0,0,1,0" />
 
             <!-- C2: FilmStripView（右側） -->
             <local:FilmStripView x:Name="FilmStripView"
                                 Grid.Column="1"
-                                ViewModel="{Binding}" />
+                                ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch" />
+
+            <!-- GridSplitterでリサイズ可能にする -->
+            <GridSplitter Grid.Column="2"
+                         HorizontalAlignment="Stretch"
+                         VerticalAlignment="Stretch"
+                         Background="#444444"
+                         ResizeDirection="Columns"
+                         ShowsPreview="False"
+                         Panel.ZIndex="5"
+                         Cursor="SizeWE" />
 
             <!-- Playhead（赤いインジケータ） -->
             <Border Grid.Column="1"
                     Background="Red"
-                    Height="2"
-                    VerticalAlignment="Center"
-                    HorizontalAlignment="Stretch"
+                    Width="2"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Stretch"
                     Panel.ZIndex="10"
                     IsHitTestVisible="False" />
         </Grid>

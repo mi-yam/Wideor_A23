@@ -65,8 +65,8 @@ namespace Wideor.App.Shared.Infra
         public async Task<BitmapSource?> GenerateThumbnailAsync(
             string videoFilePath,
             double timePosition,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             CancellationToken cancellationToken = default)
         {
             return await GenerateThumbnailAsyncInternal(videoFilePath, timePosition, width, height, cancellationToken, null);
@@ -76,8 +76,8 @@ namespace Wideor.App.Shared.Infra
         private async Task<BitmapSource?> GenerateThumbnailAsyncInternal(
             string videoFilePath,
             double timePosition,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             CancellationToken cancellationToken = default,
             double? knownDuration = null)
         {
@@ -1072,8 +1072,8 @@ namespace Wideor.App.Shared.Infra
         public async Task<Dictionary<double, BitmapSource>> GenerateThumbnailsAsync(
             string videoFilePath,
             double[] timePositions,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             CancellationToken cancellationToken = default,
             double? knownDuration = null)
         {
@@ -1241,8 +1241,8 @@ namespace Wideor.App.Shared.Infra
         public async Task<Dictionary<double, BitmapSource>> GenerateThumbnailsEvenlyAsync(
             string videoFilePath,
             int count,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             CancellationToken cancellationToken = default,
             double? knownDuration = null)
         {
@@ -1347,8 +1347,8 @@ namespace Wideor.App.Shared.Infra
 
         public async Task<BitmapSource?> GenerateThumbnailFromImageAsync(
             string imageFilePath,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             CancellationToken cancellationToken = default)
         {
             try

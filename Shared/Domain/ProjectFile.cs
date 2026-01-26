@@ -48,5 +48,15 @@ namespace Wideor.App.Shared.Domain
         /// メタデータ（キー・バリューペア）
         /// </summary>
         public Dictionary<string, string> Metadata { get; set; } = new();
+
+        /// <summary>
+        /// 動画ファイルのパス
+        /// </summary>
+        public string? VideoFilePath { get; set; }
+
+        /// <summary>
+        /// サムネイルデータ
+        /// </summary>
+        public ThumbnailData? ThumbnailData { get; set; }
     }
 }

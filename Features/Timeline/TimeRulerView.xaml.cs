@@ -196,18 +196,19 @@ namespace Wideor.App.Features.Timeline
 
                 RulerCanvas.Children.Clear();
 
-                var pixelsPerSecond = ViewModel.PixelsPerSecond.Value;
+                // 固定スケール: 1秒 = 100ピクセル
+                var pixelsPerSecond = 100.0;
                 var totalDuration = ViewModel.TotalDuration.Value;
-                var canvasWidth = ActualWidth > 0 ? ActualWidth : 120;
-                var canvasHeight = ActualHeight > 0 ? ActualHeight : 30;
+                var canvasWidth = ActualWidth > 0 ? ActualWidth : 60;
+                var canvasHeight = ActualHeight > 0 ? ActualHeight : 600;
 
-                if (pixelsPerSecond <= 0 || totalDuration <= 0)
+                if (totalDuration <= 0)
                 {
                     // #region agent log
                     Wideor.App.Shared.Infra.LogHelper.WriteLog(
                         "TimeRulerView.xaml.cs:UpdateRuler",
                         "Invalid parameters, skipping update",
-                        new { pixelsPerSecond, totalDuration });
+                        new { totalDuration });
                     // #endregion
                     return;
                 }
@@ -232,47 +233,66 @@ namespace Wideor.App.Features.Timeline
                 RulerCanvas.Height = totalHeight;
                 RulerCanvas.Width = canvasWidth;
 
-            // 適切な間隔を計算（1秒、5秒、10秒、30秒、1分、5分など）
-            var interval = CalculateInterval(pixelsPerSecond);
+            // 0秒から9秒まで、1秒間隔で描画
             var startTime = 0.0;
+            var endTime = Math.Min(9.0, totalDuration);
+            var interval = 1.0; // 1秒間隔
 
-            // 目盛りを描画（最大1000個の子要素に制限してパフォーマンスとメモリの問題を防ぐ）
-            var maxChildren = 1000;
-            var childrenCount = 0;
-            for (double time = startTime; time <= totalDuration && childrenCount < maxChildren; time += interval)
+            // 目盛りを描画
+            for (double time = startTime; time <= endTime; time += interval)
             {
                 try
                 {
-                    var y = ViewModel.TimeToY(time);
+                    // 固定スケール: 1秒 = 100ピクセル
+                    var y = time * pixelsPerSecond;
 
-                    // メイン目盛り（長い線）
-                    var tickLevel = GetTickLevel(time, interval);
+                    // メイン目盛り（縦線）
                     var line = new Line
                     {
-                        X1 = 0,
+                        X1 = canvasWidth - 20, // 右側に線を描画
                         Y1 = y,
                         X2 = canvasWidth,
                         Y2 = y,
-                        Stroke = GetTickBrush(tickLevel),
-                        StrokeThickness = GetTickThickness(tickLevel),
-                        Opacity = GetTickOpacity(tickLevel)
+                        Stroke = new SolidColorBrush(Colors.White),
+                        StrokeThickness = 1.0
                     };
                     RulerCanvas.Children.Add(line);
-                    childrenCount++;
 
-                    // 時間ラベル（メジャーとミディアム目盛りに表示）
-                    if (tickLevel == TickLevel.Major || tickLevel == TickLevel.Medium)
-                    {
+                    // 数字ラベル（0.から9.まで）
                     var textBlock = new TextBlock
                     {
-                        Text = FormatTime(time),
+                        Text = $"{(int)time}.",
                         Foreground = new SolidColorBrush(Colors.White),
-                        FontSize = tickLevel == TickLevel.Major ? 10 : 9,
-                        FontWeight = tickLevel == TickLevel.Major ? FontWeights.Bold : FontWeights.Normal,
-                        Margin = new Thickness(2, y - (tickLevel == TickLevel.Major ? 8 : 7), 0, 0)
+                        FontSize = 12,
+                        FontWeight = FontWeights.Normal,
+                        LayoutTransform = new RotateTransform(0), // 縦方向なので回転不要
+                        Margin = new Thickness(2, y - 6, 0, 0)
                     };
-                        RulerCanvas.Children.Add(textBlock);
-                        childrenCount++;
+                    RulerCanvas.Children.Add(textBlock);
+
+                    // 0.1秒間隔の細かい目盛り（数字の間）
+                    if (time < endTime)
+                    {
+                        for (int i = 1; i < 10; i++)
+                        {
+                            var subTime = time + (i * 0.1);
+                            if (subTime > endTime) break;
+                            
+                            var subY = subTime * pixelsPerSecond;
+                            var isLongTick = (i == 5); // 5つ目を少し長く
+                            
+                            var subLine = new Line
+                            {
+                                X1 = canvasWidth - (isLongTick ? 10 : 5),
+                                Y1 = subY,
+                                X2 = canvasWidth,
+                                Y2 = subY,
+                                Stroke = new SolidColorBrush(Colors.Gray),
+                                StrokeThickness = 0.5,
+                                Opacity = 0.7
+                            };
+                            RulerCanvas.Children.Add(subLine);
+                        }
                     }
                 }
                 catch (Exception tickEx)

@@ -46,7 +46,7 @@ namespace Wideor.App.Features.Player
         /// <summary>
         /// 現在の音量（0.0～1.0）
         /// </summary>
-        public IReadOnlyReactiveProperty<double> Volume { get; }
+        public ReactiveProperty<double> Volume { get; }
 
         /// <summary>
         /// シーク位置（スライダーとバインド、TwoWay）
@@ -154,7 +154,17 @@ namespace Wideor.App.Features.Player
                 .AddTo(_disposables);
 
             // 音量は内部で管理（IVideoEngineに音量のObservableがないため）
-            Volume = _volume.ToReadOnlyReactiveProperty()
+            // VolumeをReactivePropertyとして公開（TwoWayバインディング用）
+            Volume = _volume
+                .AddTo(_disposables);
+            
+            // Volumeの変更を監視してVideoEngineに反映
+            Volume
+                .Skip(1) // 初期値はスキップ
+                .Subscribe(volume =>
+                {
+                    _videoEngine.SetVolume(volume);
+                })
                 .AddTo(_disposables);
 
             // シーク位置の初期化（CurrentPositionと同期）
@@ -210,6 +220,11 @@ namespace Wideor.App.Features.Player
                 .ToReactiveCommand()
                 .WithSubscribe(() =>
                 {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "PlayerViewModel.cs:TogglePlayPauseCommand",
+                        "TogglePlayPauseCommand executed",
+                        new { isPlaying = IsPlaying.Value, isLoaded = IsLoaded.Value, hasMediaPlayer = MediaPlayer != null });
+                    
                     if (IsPlaying.Value)
                     {
                         _videoEngine.Pause();

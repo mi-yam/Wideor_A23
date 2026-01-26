@@ -35,6 +35,9 @@ namespace Wideor.App.Shared.Infra
         private readonly Subject<ProjectContextChangedEventArgs> _projectChangedSubject = new();
         private readonly CompositeDisposable _disposables = new();
 
+        private ThumbnailData? _currentThumbnailData;
+        private string? _currentVideoFilePath;
+
         private const string ProjectFileExtension = ".wideor";
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -179,6 +182,22 @@ namespace Wideor.App.Shared.Infra
                 _selectedSceneBlock.Value = null;
                 _currentPlaybackPosition.Value = 0.0;
 
+                // ThumbnailDataを保存（後で使用するため）
+                _currentThumbnailData = projectFile.ThumbnailData;
+                _currentVideoFilePath = projectFile.VideoFilePath;
+
+                // ThumbnailDataが存在する場合、サムネイルディレクトリのパスを更新
+                if (_currentThumbnailData != null && !string.IsNullOrEmpty(_currentThumbnailData.ThumbnailDirectory))
+                {
+                    var projectDir = Path.GetDirectoryName(filePath);
+                    if (!string.IsNullOrEmpty(projectDir))
+                    {
+                        // 相対パスを絶対パスに変換
+                        var absoluteThumbnailDir = Path.Combine(projectDir, _currentThumbnailData.ThumbnailDirectory);
+                        _currentThumbnailData.ThumbnailDirectory = absoluteThumbnailDir;
+                    }
+                }
+
                 // イベントを発火
                 _projectChangedSubject.OnNext(new ProjectContextChangedEventArgs
                 {
@@ -228,6 +247,31 @@ namespace Wideor.App.Shared.Infra
                     savePath = Path.ChangeExtension(savePath, ProjectFileExtension);
                 }
 
+                // プロジェクトディレクトリを取得
+                var projectDir = Path.GetDirectoryName(savePath);
+                
+                // ThumbnailDataのファイルパスを相対パスに変換
+                ThumbnailData? thumbnailDataToSave = null;
+                if (_currentThumbnailData != null && !string.IsNullOrEmpty(projectDir))
+                {
+                    thumbnailDataToSave = new ThumbnailData
+                    {
+                        VideoIdentifier = _currentThumbnailData.VideoIdentifier,
+                        Format = _currentThumbnailData.Format,
+                        TileSize = _currentThumbnailData.TileSize,
+                        BaseInterval = _currentThumbnailData.BaseInterval,
+                        KeyFrames = _currentThumbnailData.KeyFrames,
+                        ThumbnailDirectory = "thumbnails", // プロジェクトディレクトリからの相対パス
+                        Scales = _currentThumbnailData.Scales.Select(scale => new ThumbnailScale
+                        {
+                            Size = scale.Size,
+                            Width = scale.Width,
+                            Height = scale.Height,
+                            FilePath = scale.FilePath // 既に相対パスであることを前提
+                        }).ToList()
+                    };
+                }
+
                 // プロジェクトファイルオブジェクトを作成
                 var projectFile = new ProjectFile
                 {
@@ -238,7 +282,9 @@ namespace Wideor.App.Shared.Infra
                     UpdatedAt = DateTime.UtcNow,
                     ProjectName = Path.GetFileNameWithoutExtension(savePath),
                     SceneBlocks = _sceneBlocks.ToList(),
-                    TotalDuration = _totalDuration.Value
+                    TotalDuration = _totalDuration.Value,
+                    VideoFilePath = _currentVideoFilePath,
+                    ThumbnailData = thumbnailDataToSave ?? _currentThumbnailData
                 };
 
                 // JSONにシリアライズ
@@ -480,6 +526,16 @@ namespace Wideor.App.Shared.Infra
                     });
                 }
             }
+        }
+
+        public void SetThumbnailData(ThumbnailData? thumbnailData, string? videoFilePath = null)
+        {
+            _currentThumbnailData = thumbnailData;
+            if (!string.IsNullOrEmpty(videoFilePath))
+            {
+                _currentVideoFilePath = videoFilePath;
+            }
+            _isDirty.Value = true;
         }
 
         /// <summary>

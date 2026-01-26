@@ -120,6 +120,13 @@ namespace Wideor.App.Shared.Infra
         /// プロジェクトの変更を通知するストリーム
         /// </summary>
         IObservable<ProjectContextChangedEventArgs> ProjectChanged { get; }
+
+        /// <summary>
+        /// ThumbnailDataを設定します
+        /// </summary>
+        /// <param name="thumbnailData">設定するThumbnailData</param>
+        /// <param name="videoFilePath">動画ファイルのパス（オプション）</param>
+        void SetThumbnailData(ThumbnailData? thumbnailData, string? videoFilePath = null);
     }
 
     /// <summary>

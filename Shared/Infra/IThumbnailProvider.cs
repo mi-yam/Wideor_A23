@@ -9,7 +9,7 @@ namespace Wideor.App.Shared.Infra
     /// サムネイル生成の契約インターフェース。
     /// 動画や画像からサムネイルを生成します。
     /// </summary>
-    public interface IThumbnailProvider
+    public interface IThumbnailProvider : IDisposable
     {
         /// <summary>
         /// 動画ファイルから指定された時間位置のサムネイルを生成します。
@@ -23,8 +23,8 @@ namespace Wideor.App.Shared.Infra
         Task<System.Windows.Media.Imaging.BitmapSource?> GenerateThumbnailAsync(
             string videoFilePath,
             double timePosition,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             System.Threading.CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -58,8 +58,8 @@ namespace Wideor.App.Shared.Infra
         Task<Dictionary<double, System.Windows.Media.Imaging.BitmapSource>> GenerateThumbnailsEvenlyAsync(
             string videoFilePath,
             int count,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             System.Threading.CancellationToken cancellationToken = default,
             double? knownDuration = null);
 
@@ -73,8 +73,8 @@ namespace Wideor.App.Shared.Infra
         /// <returns>生成されたサムネイル画像、失敗した場合はnull</returns>
         Task<System.Windows.Media.Imaging.BitmapSource?> GenerateThumbnailFromImageAsync(
             string imageFilePath,
-            int width = 160,
-            int height = 90,
+            int width = 320,
+            int height = 180,
             System.Threading.CancellationToken cancellationToken = default);
 
         /// <summary>

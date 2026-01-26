@@ -38,13 +38,33 @@ namespace Wideor.App.Shell
                     ribbon.ViewModel = viewModel;
                 }
                 
+                
                 // #region agent log
                 LogHelper.WriteLog(
                     "ShellWindow.xaml.cs:OnViewModelChanged",
                     "ViewModel changed",
-                    new { hasViewModel = viewModel != null, hasLoadVideoCommand = viewModel?.LoadVideoCommand != null });
+                    new { hasViewModel = viewModel != null, hasLoadVideoCommand = viewModel?.LoadVideoCommand != null, hasPlayerViewModel = viewModel?.PlayerViewModel != null });
                 // #endregion
             }
+        }
+
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is T result)
+                {
+                    return result;
+                }
+
+                var childOfChild = FindVisualChild<T>(child);
+                if (childOfChild != null)
+                {
+                    return childOfChild;
+                }
+            }
+            return null;
         }
 
         public ShellWindow()
@@ -78,7 +98,7 @@ namespace Wideor.App.Shell
                 LogHelper.WriteLog(
                     "ShellWindow.xaml.cs:Loaded",
                     "ShellWindow loaded",
-                    new { hasViewModel = ViewModel != null, hasLoadVideoCommand = ViewModel?.LoadVideoCommand != null });
+                    new { hasViewModel = ViewModel != null, hasLoadVideoCommand = ViewModel?.LoadVideoCommand != null, hasPlayerViewModel = ViewModel?.PlayerViewModel != null });
                 // #endregion
                 
                 // ShellRibbonを検索してViewModelを設定
@@ -93,6 +113,7 @@ namespace Wideor.App.Shell
                         new { ribbonViewModel = ribbon.ViewModel != null });
                     // #endregion
                 }
+                
             }
         }
 

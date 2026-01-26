@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Data;
@@ -17,13 +19,16 @@ namespace Wideor.App.Features.Timeline
 {
     /// <summary>
     /// タイムライン機能のViewModel。
-    /// スクロール同期、ズーム管理、サムネイル生成を統合します。
+    /// スクロール同期、ズーム管理、動画セグメント管理を統合します。
     /// </summary>
-    public class TimelineViewModel : IDisposable
+    public class TimelineViewModel : INotifyPropertyChanged, IDisposable
     {
         private readonly IScrollCoordinator _scrollCoordinator;
         private readonly ITimeRulerService _timeRulerService;
-        private readonly IThumbnailProvider _thumbnailProvider;
+        private readonly IVideoSegmentManager _segmentManager;
+        private readonly ICommandExecutor _commandExecutor;
+        private readonly ICommandParser _commandParser;
+        private readonly IVideoEngine _videoEngine;
         private readonly CompositeDisposable _disposables = new();
 
         // --- Reactive Properties ---
@@ -49,14 +54,7 @@ namespace Wideor.App.Features.Timeline
         public IReadOnlyReactiveProperty<double> TotalHeight { get; }
 
         /// <summary>
-        /// サムネイルアイテムのコレクション
-        /// </summary>
-        public ReadOnlyObservableCollection<ThumbnailItem> ThumbnailItems { get; }
-
-        private readonly ObservableCollection<ThumbnailItem> _thumbnailItems = new();
-
-        /// <summary>
-        /// 動画ファイルのパス（サムネイル生成用）
+        /// 動画ファイルのパス
         /// </summary>
         public ReactiveProperty<string?> VideoFilePath { get; }
 
@@ -66,24 +64,44 @@ namespace Wideor.App.Features.Timeline
         public ReactiveProperty<double> TotalDuration { get; }
 
         /// <summary>
-        /// サムネイルの幅（ピクセル）
+        /// ビデオセグメントのコレクション
         /// </summary>
-        public ReactiveProperty<int> ThumbnailWidth { get; }
+        public ReadOnlyObservableCollection<VideoSegment> VideoSegments { get; }
+
+        private readonly ObservableCollection<VideoSegment> _videoSegments = new();
 
         /// <summary>
-        /// サムネイルの高さ（ピクセル）
+        /// 現在再生中のセグメント
         /// </summary>
-        public ReactiveProperty<int> ThumbnailHeight { get; }
+        public ReactiveProperty<VideoSegment?> CurrentPlayingSegment { get; }
 
         /// <summary>
-        /// 動画のフレームレート（fps）
+        /// MediaPlayer（VideoSegmentViewで使用）
         /// </summary>
-        public ReactiveProperty<double> VideoFrameRate { get; }
+        public LibVLCSharp.Shared.MediaPlayer? MediaPlayer
+        {
+            get => _mediaPlayer;
+            private set
+            {
+                if (_mediaPlayer != value)
+                {
+                    _mediaPlayer = value;
+                    OnPropertyChanged(nameof(MediaPlayer));
+                }
+            }
+        }
+        
+        private LibVLCSharp.Shared.MediaPlayer? _mediaPlayer;
 
         /// <summary>
-        /// 表示フレームレート（fps）- タイムラインに表示するフレームレート
+        /// 動画の読み込み状態
         /// </summary>
-        public ReactiveProperty<double> DisplayFrameRate { get; }
+        public IReadOnlyReactiveProperty<bool> IsLoaded { get; }
+
+        /// <summary>
+        /// 現在の再生位置（秒）
+        /// </summary>
+        public IReadOnlyReactiveProperty<double> CurrentPosition { get; }
 
         // --- Commands ---
 
@@ -102,32 +120,24 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         public ReactiveCommand ZoomResetCommand { get; }
 
-        /// <summary>
-        /// サムネイルを生成するコマンド
-        /// </summary>
-        public ReactiveCommand GenerateThumbnailsCommand { get; }
-
-        private CancellationTokenSource? _thumbnailCancellation;
-        private Task<Dictionary<double, System.Windows.Media.Imaging.BitmapSource>>? _thumbnailTask;
-        private bool _isGeneratingThumbnails = false; // サムネイル生成中のフラグ
-
-        /// <summary>
-        /// EditorViewModelへの参照（SceneBlocksを取得するため）
-        /// </summary>
-        public EditorViewModel? EditorViewModel { get; set; }
-
         public TimelineViewModel(
             IScrollCoordinator scrollCoordinator,
             ITimeRulerService timeRulerService,
-            IThumbnailProvider thumbnailProvider)
+            IVideoSegmentManager segmentManager,
+            ICommandExecutor commandExecutor,
+            ICommandParser commandParser,
+            IVideoEngine videoEngine)
         {
             _scrollCoordinator = scrollCoordinator ?? throw new ArgumentNullException(nameof(scrollCoordinator));
             _timeRulerService = timeRulerService ?? throw new ArgumentNullException(nameof(timeRulerService));
-            _thumbnailProvider = thumbnailProvider ?? throw new ArgumentNullException(nameof(thumbnailProvider));
+            _segmentManager = segmentManager ?? throw new ArgumentNullException(nameof(segmentManager));
+            _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
+            _commandParser = commandParser ?? throw new ArgumentNullException(nameof(commandParser));
+            _videoEngine = videoEngine ?? throw new ArgumentNullException(nameof(videoEngine));
 
-            // ITimeRulerServiceのPixelsPerSecondを購読
-            PixelsPerSecond = _timeRulerService.PixelsPerSecond
-                .ToReadOnlyReactiveProperty(100.0) // デフォルト: 100px/秒
+            // 固定スケール: 1秒 = 100ピクセル（ズーム機能なし）
+            PixelsPerSecond = new ReactiveProperty<double>(100.0)
+                .ToReadOnlyReactiveProperty()
                 .AddTo(_disposables);
 
             // IScrollCoordinatorのスクロール位置を購読
@@ -135,28 +145,63 @@ namespace Wideor.App.Features.Timeline
                 .ToReadOnlyReactiveProperty(0.0)
                 .AddTo(_disposables);
 
-            // サムネイルアイテムのコレクション
+            // ビデオセグメントのコレクション
             // コレクション同期を有効化（非UIスレッドからの更新を許可）
-            BindingOperations.EnableCollectionSynchronization(_thumbnailItems, new object());
-            ThumbnailItems = new ReadOnlyObservableCollection<ThumbnailItem>(_thumbnailItems);
+            BindingOperations.EnableCollectionSynchronization(_videoSegments, new object());
+            VideoSegments = new ReadOnlyObservableCollection<VideoSegment>(_videoSegments);
+
+            // 現在再生中のセグメント
+            CurrentPlayingSegment = new ReactiveProperty<VideoSegment?>()
+                .AddTo(_disposables);
+
+            // 動画の読み込み状態
+            IsLoaded = _videoEngine.IsLoaded
+                .ToReadOnlyReactiveProperty(false)
+                .AddTo(_disposables);
+
+            // 初期MediaPlayerを設定
+            MediaPlayer = _videoEngine.MediaPlayer;
+
+            // MediaPlayerの変更を監視（IsLoadedがtrueになったときにMediaPlayerを更新）
+            IsLoaded
+                .Where(loaded => loaded)
+                .Subscribe(_ =>
+                {
+                    MediaPlayer = _videoEngine.MediaPlayer;
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel:IsLoaded",
+                        "MediaPlayer updated",
+                        new { hasMediaPlayer = MediaPlayer != null });
+                })
+                .AddTo(_disposables);
+
+            // 現在の再生位置
+            CurrentPosition = _videoEngine.CurrentPosition
+                .ToReadOnlyReactiveProperty(0.0)
+                .AddTo(_disposables);
+            
+            // 再生位置を監視して、セグメントの終了時間に達したら停止
+            CurrentPosition
+                .CombineLatest(CurrentPlayingSegment, (position, segment) => new { Position = position, Segment = segment })
+                .Where(x => x.Segment != null && x.Position >= x.Segment.EndTime)
+                .Subscribe(x =>
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:CurrentPosition",
+                        "Segment end reached, stopping playback",
+                        new { segmentId = x.Segment.Id, position = x.Position, endTime = x.Segment.EndTime });
+                    
+                    _videoEngine.Stop();
+                    x.Segment.State = SegmentState.Stopped;
+                    CurrentPlayingSegment.Value = null;
+                })
+                .AddTo(_disposables);
 
             // プロパティの初期化
             VideoFilePath = new ReactiveProperty<string?>()
                 .AddTo(_disposables);
 
             TotalDuration = new ReactiveProperty<double>(0.0)
-                .AddTo(_disposables);
-
-            ThumbnailWidth = new ReactiveProperty<int>(160)
-                .AddTo(_disposables);
-
-            ThumbnailHeight = new ReactiveProperty<int>(90)
-                .AddTo(_disposables);
-
-            VideoFrameRate = new ReactiveProperty<double>(30.0) // デフォルト: 30fps
-                .AddTo(_disposables);
-
-            DisplayFrameRate = new ReactiveProperty<double>(1.0) // デフォルト: 1fps（1秒に1フレーム表示）
                 .AddTo(_disposables);
 
             // 総高さの計算（TotalDuration × PixelsPerSecond）
@@ -290,79 +335,299 @@ namespace Wideor.App.Features.Timeline
                 })
                 .AddTo(_disposables);
 
-            GenerateThumbnailsCommand = VideoFilePath
-                .Select(path => !string.IsNullOrEmpty(path))
-                .ToReactiveCommand()
-                .WithSubscribe(() =>
-                {
-                    // Taskの例外をキャッチしてログに記録
-                    _ = GenerateThumbnailsAsync().ContinueWith(task =>
-                    {
-                        if (task.IsFaulted && task.Exception != null)
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsCommand",
-                                "Task faulted",
-                                new { exceptionType = task.Exception.InnerException?.GetType().Name, message = task.Exception.InnerException?.Message, stackTrace = task.Exception.InnerException?.StackTrace });
-                        }
-                    }, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
-                })
-                .AddTo(_disposables);
+            // セグメント変更イベントの購読
+            _segmentManager.SegmentAdded += OnSegmentAdded;
+            _segmentManager.SegmentRemoved += OnSegmentRemoved;
+            _segmentManager.SegmentUpdated += OnSegmentUpdated;
 
-            // PixelsPerSecondまたはDisplayFrameRateが変更されたら、サムネイルを再生成（最適化版）
-            PixelsPerSecond
-                .Skip(1) // 初期値はスキップ
-                .Throttle(TimeSpan.FromMilliseconds(500)) // ズーム操作が完了してから500ms後に生成（高速化）
-                .Where(_ => !_isGeneratingThumbnails) // 既に生成中の場合はスキップ
-                .Subscribe(async _ =>
-                {
-                    await RegenerateThumbnailsIfNeeded();
-                })
-                .AddTo(_disposables);
-
-            DisplayFrameRate
-                .Skip(1) // 初期値はスキップ
-                .Throttle(TimeSpan.FromMilliseconds(500)) // 表示fps変更が完了してから500ms後に生成
-                .Where(_ => !_isGeneratingThumbnails) // 既に生成中の場合はスキップ
-                .Subscribe(async _ =>
-                {
-                    await RegenerateThumbnailsIfNeeded();
-                })
-                .AddTo(_disposables);
+            // 既存のセグメントを初期化
+            foreach (var segment in _segmentManager.Segments)
+            {
+                _videoSegments.Add(segment);
+            }
         }
 
         /// <summary>
-        /// サムネイルを再生成する必要がある場合に再生成します
+        /// セグメント追加イベントハンドラ
         /// </summary>
-        private async Task RegenerateThumbnailsIfNeeded()
+        private void OnSegmentAdded(object? sender, VideoSegmentEventArgs e)
         {
-            // 既に生成中の場合はスキップ
-            if (_isGeneratingThumbnails)
+            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                "TimelineViewModel.cs:OnSegmentAdded",
+                "Segment added event received",
+                new { segmentId = e.Segment.Id, startTime = e.Segment.StartTime, endTime = e.Segment.EndTime, currentCount = _videoSegments.Count });
+            
+            // UIスレッドで同期的に実行（InvokeAsyncではなくInvokeを使用）
+            if (System.Windows.Application.Current.Dispatcher.CheckAccess())
             {
+                // 既にUIスレッドにいる場合は直接実行
+                _videoSegments.Add(e.Segment);
+                
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentAdded",
+                    "Segment added to collection (UI thread)",
+                    new { segmentId = e.Segment.Id, newCount = _videoSegments.Count });
+            }
+            else
+            {
+                // UIスレッドでない場合は同期的に実行
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    _videoSegments.Add(e.Segment);
+                    
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentAdded",
+                        "Segment added to collection (dispatched)",
+                        new { segmentId = e.Segment.Id, newCount = _videoSegments.Count });
+                });
+            }
+        }
+
+        /// <summary>
+        /// セグメント削除イベントハンドラ
+        /// </summary>
+        private void OnSegmentRemoved(object? sender, VideoSegmentEventArgs e)
+        {
+            if (System.Windows.Application.Current.Dispatcher.CheckAccess())
+            {
+                var segment = _videoSegments.FirstOrDefault(s => s.Id == e.Segment.Id);
+                if (segment != null)
+                {
+                    _videoSegments.Remove(segment);
+                }
+            }
+            else
+            {
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    var segment = _videoSegments.FirstOrDefault(s => s.Id == e.Segment.Id);
+                    if (segment != null)
+                    {
+                        _videoSegments.Remove(segment);
+                    }
+                });
+            }
+        }
+
+        /// <summary>
+        /// セグメント更新イベントハンドラ
+        /// </summary>
+        private void OnSegmentUpdated(object? sender, VideoSegmentEventArgs e)
+        {
+            if (System.Windows.Application.Current.Dispatcher.CheckAccess())
+            {
+                var index = _videoSegments.ToList().FindIndex(s => s.Id == e.Segment.Id);
+                if (index >= 0)
+                {
+                    _videoSegments[index] = e.Segment;
+                }
+            }
+            else
+            {
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    var index = _videoSegments.ToList().FindIndex(s => s.Id == e.Segment.Id);
+                    if (index >= 0)
+                    {
+                        _videoSegments[index] = e.Segment;
+                    }
+                });
+            }
+        }
+
+        /// <summary>
+        /// 現在ロードされている動画ファイルパス
+        /// </summary>
+        private string? _currentLoadedVideoPath;
+
+        /// <summary>
+        /// 動画切り替え中フラグ（デッドロック防止）
+        /// </summary>
+        private bool _isSwitchingVideo = false;
+
+        /// <summary>
+        /// 現在ロードされている動画ファイルパスを設定
+        /// （ShellViewModelから動画ロード後に呼び出す）
+        /// </summary>
+        public void SetCurrentLoadedVideoPath(string? videoPath)
+        {
+            _currentLoadedVideoPath = videoPath;
+            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                "TimelineViewModel.cs:SetCurrentLoadedVideoPath",
+                "Current loaded video path set",
+                new { videoPath = videoPath });
+        }
+
+        /// <summary>
+        /// セグメントをクリックした時の処理
+        /// </summary>
+        public async void OnSegmentClicked(VideoSegment segment)
+        {
+            // 動画切り替え中は処理しない（デッドロック防止）
+            if (_isSwitchingVideo)
+            {
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentClicked",
+                    "Already switching video, ignoring click",
+                    new { segmentId = segment.Id });
                 return;
             }
 
-            if (string.IsNullOrEmpty(VideoFilePath.Value) || TotalDuration.Value <= 0)
+            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                "TimelineViewModel.cs:OnSegmentClicked",
+                "Segment clicked",
+                new { segmentId = segment.Id, startTime = segment.StartTime, endTime = segment.EndTime, videoFilePath = segment.VideoFilePath });
+            
+            // 非表示セグメントは再生しない
+            if (!segment.Visible || segment.State == SegmentState.Hidden)
             {
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentClicked",
+                    "Segment is hidden, skipping playback",
+                    new { segmentId = segment.Id, visible = segment.Visible, state = segment.State.ToString() });
                 return;
+            }
+            
+            // 現在再生中のセグメントを確認
+            var currentSegment = CurrentPlayingSegment.Value;
+            if (currentSegment != null && currentSegment.Id == segment.Id)
+            {
+                // 同じセグメントがクリックされた場合は、再生/一時停止を切り替え
+                if (currentSegment.State == SegmentState.Playing)
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentClicked",
+                        "Pausing current segment",
+                        new { segmentId = segment.Id });
+                    _videoEngine.Pause();
+                    currentSegment.State = SegmentState.Stopped;
+                    CurrentPlayingSegment.Value = null;
+                    return;
+                }
+                else if (_videoEngine.CurrentIsLoaded)
+                {
+                    // 停止中で動画がロード済みなら再生を再開
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentClicked",
+                        "Resuming segment playback",
+                        new { segmentId = segment.Id });
+                    currentSegment.State = SegmentState.Playing;
+                    CurrentPlayingSegment.Value = currentSegment;
+                    _videoEngine.Play();
+                    return;
+                }
             }
 
             try
             {
-                await GenerateThumbnailsAsync();
-            }
-            catch (OperationCanceledException)
-            {
-                // キャンセルされた場合は何もしない
+                _isSwitchingVideo = true;
+
+                // 別のセグメントが再生中の場合は停止
+                if (currentSegment != null && currentSegment.Id != segment.Id)
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentClicked",
+                        "Stopping current segment",
+                        new { currentSegmentId = currentSegment.Id, newSegmentId = segment.Id });
+                    currentSegment.State = SegmentState.Stopped;
+                    _videoEngine.Stop();
+                    await Task.Delay(50); // 停止が完了するまで待機
+                }
+
+                // 動画ファイルが異なる場合は再読み込み
+                if (_currentLoadedVideoPath != segment.VideoFilePath)
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentClicked",
+                        "Loading different video file",
+                        new { 
+                            segmentId = segment.Id, 
+                            currentPath = _currentLoadedVideoPath, 
+                            newPath = segment.VideoFilePath 
+                        });
+
+                    // 新しい動画をロード
+                    var loadResult = await _videoEngine.LoadAsync(segment.VideoFilePath);
+                    if (!loadResult)
+                    {
+                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                            "TimelineViewModel.cs:OnSegmentClicked",
+                            "Failed to load video",
+                            new { segmentId = segment.Id, videoFilePath = segment.VideoFilePath });
+                        return;
+                    }
+
+                    _currentLoadedVideoPath = segment.VideoFilePath;
+                    MediaPlayer = _videoEngine.MediaPlayer;
+
+                    // MediaPlayerの更新を待機
+                    await Task.Delay(100);
+                }
+
+                // 動画が読み込まれているか確認
+                if (!_videoEngine.CurrentIsLoaded)
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentClicked",
+                        "Video not loaded",
+                        new { segmentId = segment.Id });
+                    return;
+                }
+
+                // クリックされたセグメントを再生
+                segment.State = SegmentState.Playing;
+                CurrentPlayingSegment.Value = segment;
+
+                // セグメントの開始時間にシークして再生
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentClicked",
+                    "Seeking to segment start time",
+                    new { segmentId = segment.Id, startTime = segment.StartTime });
+                
+                await _videoEngine.SeekAsync(segment.StartTime);
+                
+                // シーク後に少し待ってから再生
+                await Task.Delay(100);
+                
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentClicked",
+                    "Starting playback",
+                    new { segmentId = segment.Id, startTime = segment.StartTime });
+                
+                _videoEngine.Play();
+                
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentClicked",
+                    "Playback started successfully",
+                    new { segmentId = segment.Id, startTime = segment.StartTime, endTime = segment.EndTime });
             }
             catch (Exception ex)
             {
-                // エラーをログに記録（UIをクラッシュさせないため）
                 Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:RegenerateThumbnailsIfNeeded",
-                    "Exception in RegenerateThumbnailsIfNeeded",
-                    new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+                    "TimelineViewModel.cs:OnSegmentClicked",
+                    "Error playing segment",
+                    new { segmentId = segment.Id, startTime = segment.StartTime, exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+                
+                segment.State = SegmentState.Stopped;
+                CurrentPlayingSegment.Value = null;
             }
+            finally
+            {
+                _isSwitchingVideo = false;
+            }
+        }
+
+        /// <summary>
+        /// エンターキーで分割
+        /// </summary>
+        public void CutAtCurrentTime(double currentTime)
+        {
+            var command = new EditCommand
+            {
+                Type = CommandType.Cut,
+                Time = currentTime
+            };
+            _commandExecutor.ExecuteCommand(command);
         }
 
         /// <summary>
@@ -407,785 +672,21 @@ namespace Wideor.App.Features.Timeline
             return _timeRulerService.YToTime(y);
         }
 
-        /// <summary>
-        /// 表示範囲内のThumbnailItemのIsActiveを更新（最適化版）
-        /// </summary>
-        public void UpdateVisibleThumbnailStates(double viewportTop, double viewportBottom, IReadOnlyList<SceneBlock> sceneBlocks)
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
-            try
-            {
-                if (sceneBlocks == null)
-                    return;
-
-                var margin = 100; // 上下100pxのマージン
-                var topWithMargin = viewportTop - margin;
-                var bottomWithMargin = viewportBottom + margin;
-
-                // SceneBlocksを時間範囲でソートして、バイナリサーチを可能にする（最適化）
-                var sortedBlocks = sceneBlocks
-                    .Where(block => block != null)
-                    .OrderBy(block => block.StartTime)
-                    .ToList();
-
-                // UIスレッドで実行されていることを確認
-                if (!System.Windows.Application.Current.Dispatcher.CheckAccess())
-                {
-                    System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                        UpdateVisibleThumbnailStates(viewportTop, viewportBottom, sceneBlocks));
-                    return;
-                }
-
-                // 表示範囲内のアイテムのみを処理（パフォーマンス向上）
-                // YPositionでソートされていることを前提に、範囲検索を最適化
-                var visibleItems = _thumbnailItems
-                    .Where(item => item != null && item.YPosition >= topWithMargin && item.YPosition <= bottomWithMargin)
-                    .ToList();
-
-                foreach (var item in visibleItems)
-                {
-                    try
-                    {
-                        // バイナリサーチで該当するSceneBlockを検索（最適化）
-                        var isActive = sortedBlocks.Any(block =>
-                            item.TimePosition >= block.StartTime && item.TimePosition <= block.EndTime);
-                        
-                        // 値が変更された場合のみ更新（不要な通知を避ける）
-                        if (item.IsActive.Value != isActive)
-                        {
-                            item.IsActive.Value = isActive;
-                        }
-                    }
-                    catch (Exception itemEx)
-                    {
-                        // 個別のアイテム更新エラーは無視して続行
-                        System.Diagnostics.Debug.WriteLine($"Error updating item state: {itemEx.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // エラーをログに記録（クラッシュを防ぐ）
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:UpdateVisibleThumbnailStates",
-                    "Error updating visible thumbnail states",
-                    new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
-            }
-        }
-
-        /// <summary>
-        /// サムネイルを生成します。
-        /// </summary>
-        private async Task GenerateThumbnailsAsync()
-        {
-            // 既に生成中の場合はスキップ
-            if (_isGeneratingThumbnails)
-            {
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Skipping thumbnail generation (already in progress)",
-                        new { videoFilePath = VideoFilePath.Value, totalDuration = TotalDuration.Value });
-                }
-                catch { }
-                // #endregion
-                return;
-            }
-            
-            // #region agent log
-            try
-            {
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                    "GenerateThumbnailsAsync called",
-                    new { videoFilePath = VideoFilePath.Value, totalDuration = TotalDuration.Value });
-            }
-            catch { }
-            // #endregion
-            
-            if (string.IsNullOrEmpty(VideoFilePath.Value) || TotalDuration.Value <= 0)
-            {
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Skipping thumbnail generation (invalid parameters)",
-                        new { videoFilePath = VideoFilePath.Value, totalDuration = TotalDuration.Value });
-                }
-                catch { }
-                // #endregion
-                // UIスレッドでコレクションをクリアする必要がある
-                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => _thumbnailItems.Clear());
-                return;
-            }
-            
-            // 前回の生成をキャンセル（_thumbnailTaskをローカル変数に保存して、nullにならないようにする）
-            Task<Dictionary<double, System.Windows.Media.Imaging.BitmapSource>>? previousTask = _thumbnailTask;
-            CancellationTokenSource? previousCancellation = _thumbnailCancellation;
-            
-            // 前のタスクがある場合は、確実にキャンセルして完了を待つ
-            if (previousCancellation != null || previousTask != null)
-            {
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Cancelling previous thumbnail generation",
-                        new { 
-                            hasCancellationSource = previousCancellation != null, 
-                            isCancellationRequested = previousCancellation.Token.IsCancellationRequested, 
-                            hasTask = previousTask != null, 
-                            taskStatus = previousTask?.Status.ToString(),
-                            isTaskCompleted = previousTask?.IsCompleted ?? false
-                        });
-                }
-                catch { }
-                // #endregion
-                
-                try
-                {
-                    previousCancellation.Cancel();
-                    
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Cancellation requested",
-                            new { isCancellationRequested = previousCancellation.Token.IsCancellationRequested });
-                    }
-                    catch { }
-                    // #endregion
-                }
-                catch (Exception cancelEx)
-                {
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Exception cancelling previous task",
-                            new { exceptionType = cancelEx.GetType().Name, message = cancelEx.Message });
-                    }
-                    catch { }
-                    // #endregion
-                }
-                
-                // 前回のタスクが完了するまで待つ（セマフォが解放されるのを待つ）
-                if (previousTask != null)
-                {
-                    try
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                "Waiting for previous task to complete",
-                                new { 
-                                    taskStatus = previousTask.Status.ToString(), 
-                                    isFaulted = previousTask.IsFaulted, 
-                                    isCanceled = previousTask.IsCanceled,
-                                    isCompleted = previousTask.IsCompleted
-                                });
-                        }
-                        catch { }
-                        // #endregion
-                        
-                        // タイムアウト付きで待機（最大3秒に延長）
-                        var waitTask = Task.WhenAny(previousTask, Task.Delay(3000));
-                        
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                "Task.WhenAny called",
-                                null);
-                        }
-                        catch { }
-                        // #endregion
-                        
-                        await waitTask;
-                        
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                "Previous task wait completed",
-                                new { 
-                                    taskStatus = previousTask.Status.ToString(), 
-                                    isCompleted = previousTask.IsCompleted, 
-                                    isFaulted = previousTask.IsFaulted, 
-                                    isCanceled = previousTask.IsCanceled 
-                                });
-                        }
-                        catch { }
-                        // #endregion
-                        
-                        // タスクが完了していない場合、例外を確認
-                        if (previousTask.IsFaulted && previousTask.Exception != null)
-                        {
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                    "Previous task faulted",
-                                    new { 
-                                        exceptionType = previousTask.Exception.InnerException?.GetType().Name, 
-                                        message = previousTask.Exception.InnerException?.Message, 
-                                        stackTrace = previousTask.Exception.InnerException?.StackTrace 
-                                    });
-                            }
-                            catch { }
-                            // #endregion
-                        }
-                        
-                        // タスクが完了していない場合は、最大3秒まで待つ
-                        if (!previousTask.IsCompleted)
-                        {
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                    "Previous task not completed, waiting with timeout",
-                                    null);
-                            }
-                            catch { }
-                            // #endregion
-                            
-                            try
-                            {
-                                previousTask.Wait(TimeSpan.FromSeconds(3));
-                            }
-                            catch (Exception waitEx)
-                            {
-                                // #region agent log
-                                try
-                                {
-                                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                        "Exception waiting for previous task completion",
-                                        new { exceptionType = waitEx.GetType().Name, message = waitEx.Message });
-                                }
-                                catch { }
-                                // #endregion
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                "Exception waiting for previous task",
-                                new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
-                        }
-                        catch { }
-                        // #endregion
-                    }
-                }
-                else
-                {
-                    // タスクがない場合、キャンセルが反映されるまで少し待つ
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "No previous task, waiting for cancellation to propagate",
-                            null);
-                    }
-                    catch { }
-                    // #endregion
-                    await Task.Delay(200); // 100msから200msに延長
-                }
-                
-                // 前回のCancellationTokenSourceを破棄（タスクの待機後）
-                try
-                {
-                    previousCancellation.Dispose();
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Previous CancellationTokenSource disposed",
-                            null);
-                    }
-                    catch { }
-                    // #endregion
-                }
-                catch (Exception disposeEx)
-                {
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Exception disposing CancellationTokenSource",
-                            new { exceptionType = disposeEx.GetType().Name, message = disposeEx.Message });
-                    }
-                    catch {                     }
-                    // #endregion
-                }
-                
-                // 前のタスクが完了するまで、最大5秒まで待つ（セマフォが解放されるのを確実に待つ）
-                if (previousTask != null && !previousTask.IsCompleted)
-                {
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Waiting for previous task to fully complete",
-                            new { taskStatus = previousTask.Status.ToString(), isCompleted = previousTask.IsCompleted });
-                    }
-                    catch { }
-                    // #endregion
-                    
-                    try
-                    {
-                        // 前のタスクが完了するまで最大5秒待つ
-                        await Task.WhenAny(previousTask, Task.Delay(5000));
-                        
-                        // まだ完了していない場合は、強制的に待つ
-                        if (!previousTask.IsCompleted)
-                        {
-                            previousTask.Wait(TimeSpan.FromSeconds(2));
-                        }
-                        
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                "Previous task fully completed",
-                                new { taskStatus = previousTask.Status.ToString(), isCompleted = previousTask.IsCompleted });
-                        }
-                        catch { }
-                        // #endregion
-                    }
-                    catch (Exception waitEx)
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                                "Exception waiting for previous task",
-                                new { exceptionType = waitEx.GetType().Name, message = waitEx.Message });
-                        }
-                        catch { }
-                        // #endregion
-                    }
-                }
-                
-                // 前のタスクが完了したことを確認するため、少し待つ
-                await Task.Delay(100);
-            }
-            
-            // 生成フラグを設定（前のタスクが完了した後）
-            _isGeneratingThumbnails = true;
-            
-            // #region agent log
-            try
-            {
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                    "Creating new CancellationTokenSource",
-                    null);
-            }
-            catch { }
-            // #endregion
-            
-            _thumbnailCancellation = new CancellationTokenSource();
-            var cancellationToken = _thumbnailCancellation.Token;
-            
-            // #region agent log
-            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                "New cancellation token created",
-                new { isCancellationRequested = cancellationToken.IsCancellationRequested });
-            // #endregion
-
-            try
-            {
-                var totalDuration = TotalDuration.Value;
-                var pixelsPerSecond = PixelsPerSecond.Value;
-
-                // ズームレベルに基づいてフレーム間隔を計算
-                // 基準：PixelsPerSecond = 100 → 1秒間隔
-                // ズームイン：PixelsPerSecond = 200 → 0.5秒間隔
-                // ズームアウト：PixelsPerSecond = 50 → 2秒間隔
-                const double basePixelsPerSecond = 100.0; // 基準値（1秒間隔に対応）
-                var timeIntervalSeconds = basePixelsPerSecond / pixelsPerSecond;
-                
-                var timePositions = new List<double>();
-
-                if (totalDuration > 0 && timeIntervalSeconds > 0)
-                {
-                    // 過剰生成を避けるため上限を設ける（最大500フレーム）
-                    var expectedCount = (int)Math.Ceiling(totalDuration / timeIntervalSeconds);
-                    const int maxThumbnails = 500;
-                    
-                    if (expectedCount > maxThumbnails)
-                    {
-                        // 間隔を拡大して最大500フレームに制限
-                        var stride = (int)Math.Ceiling((double)expectedCount / maxThumbnails);
-                        timeIntervalSeconds *= stride;
-                    }
-                    
-                    // 時間位置を計算（ズームベース）
-                    for (double t = 0; t <= totalDuration; t += timeIntervalSeconds)
-                    {
-                        timePositions.Add(t);
-                    }
-                    
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Calculating thumbnail sampling (zoom-based)",
-                            new
-                            {
-                                pixelsPerSecond,
-                                basePixelsPerSecond,
-                                timeIntervalSeconds,
-                                totalDuration,
-                                expectedCount,
-                                timePositionsCount = timePositions.Count
-                            });
-                    }
-                    catch { }
-                    // #endregion
-                }
-
-                // 連続体のフレームを一定間隔でサンプリング
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                    "Calling GenerateThumbnailsAsync (time positions)",
-                    new { videoFilePath = VideoFilePath.Value, timePositionsCount = timePositions.Count, width = ThumbnailWidth.Value, height = ThumbnailHeight.Value });
-                
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                    "Before GenerateThumbnailsAsync (time positions)",
-                    new { videoFilePath = VideoFilePath.Value, timePositionsCount = timePositions.Count, width = ThumbnailWidth.Value, height = ThumbnailHeight.Value, isCancellationRequested = cancellationToken.IsCancellationRequested });
-                
-                // 新しいタスクを作成して追跡
-                // TotalDurationを渡すことで、GetVideoDurationAsyncの呼び出しをスキップし、クラッシュのリスクを回避
-                _thumbnailTask = _thumbnailProvider.GenerateThumbnailsAsync(
-                    VideoFilePath.Value,
-                    timePositions.ToArray(),
-                    ThumbnailWidth.Value,
-                    ThumbnailHeight.Value,
-                    cancellationToken,
-                    TotalDuration.Value > 0 ? TotalDuration.Value : (double?)null);
-                
-                Dictionary<double, System.Windows.Media.Imaging.BitmapSource> thumbnails = await _thumbnailTask;
-
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                    "GenerateThumbnailsAsync (time positions) completed",
-                    new { thumbnailCount = thumbnails.Count, hasThumbnails = thumbnails.Count > 0 });
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Cancellation requested",
-                        null);
-                    return;
-                }
-
-                // サムネイルアイテムを更新（UIスレッドで実行する必要がある）
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Before Dispatcher.InvokeAsync",
-                        new { thumbnailsCount = thumbnails.Count, isOnUIThread = System.Windows.Application.Current.Dispatcher.CheckAccess() });
-                }
-                catch { }
-                // #endregion
-                
-                try
-                {
-                    await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        try
-                        {
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                    "Dispatcher.InvokeAsync lambda started",
-                                    new { thumbnailsCount = thumbnails.Count, currentItemsCount = _thumbnailItems.Count });
-                            }
-                            catch { }
-                            // #endregion
-                            
-                            // 既存のサムネイルを再利用するための辞書を作成（パフォーマンス最適化）
-                            var existingItemsByTime = _thumbnailItems.ToDictionary(item => item.TimePosition);
-                            
-                            // 新しいサムネイルのTimePositionセット
-                            var newTimePositions = new HashSet<double>(thumbnails.Keys);
-                            
-                            // 既存のアイテムで、新しいTimePositionに含まれないものを削除
-                            var itemsToRemove = _thumbnailItems
-                                .Where(item => !newTimePositions.Contains(item.TimePosition))
-                                .ToList();
-                            
-                            foreach (var item in itemsToRemove)
-                            {
-                                _thumbnailItems.Remove(item);
-                            }
-                            
-                            // 新しいサムネイルを追加または更新
-                            var addedCount = 0;
-                            var updatedCount = 0;
-                            var currentPixelsPerSecond = PixelsPerSecond.Value;
-                            
-                            foreach (var kvp in thumbnails.OrderBy(x => x.Key))
-                            {
-                                try
-                                {
-                                    var yPosition = TimeToY(kvp.Key);
-                                    
-                                    if (existingItemsByTime.TryGetValue(kvp.Key, out var existingItem))
-                                    {
-                                        // 既存アイテムのYPositionを更新（サムネイルは再利用）
-                                        existingItem.YPosition = yPosition;
-                                        updatedCount++;
-                                    }
-                                    else
-                                    {
-                                        // 新しいアイテムを追加
-                                        var thumbnailItem = new ThumbnailItem
-                                        {
-                                            TimePosition = kvp.Key,
-                                            Thumbnail = kvp.Value,
-                                            YPosition = yPosition
-                                        };
-                                        _thumbnailItems.Add(thumbnailItem);
-                                        addedCount++;
-                                    }
-                                }
-                                catch (Exception addEx)
-                                {
-                                    // #region agent log
-                                    try
-                                    {
-                                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                            "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                            "Exception adding/updating thumbnail item",
-                                            new { timePosition = kvp.Key, exceptionType = addEx.GetType().Name, message = addEx.Message, stackTrace = addEx.StackTrace });
-                                    }
-                                    catch { }
-                                    // #endregion
-                                }
-                            }
-                            
-                            // YPositionでソート（効率的な表示のため）
-                            var sortedItems = _thumbnailItems.OrderBy(item => item.YPosition).ToList();
-                            _thumbnailItems.Clear();
-                            foreach (var item in sortedItems)
-                            {
-                                _thumbnailItems.Add(item);
-                            }
-                            
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                    "ThumbnailItems updated",
-                                    new { addedCount = addedCount, updatedCount = updatedCount, removedCount = itemsToRemove.Count, totalCount = _thumbnailItems.Count });
-                            }
-                            catch { }
-                            // #endregion
-                        }
-                        catch (Exception lambdaEx)
-                        {
-                            // #region agent log
-                            try
-                            {
-                                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                    "TimelineViewModel.cs:GenerateThumbnailsAsync:Dispatcher.InvokeAsync",
-                                    "Exception in Dispatcher.InvokeAsync lambda",
-                                    new { exceptionType = lambdaEx.GetType().Name, message = lambdaEx.Message, stackTrace = lambdaEx.StackTrace, innerException = lambdaEx.InnerException?.ToString() });
-                            }
-                            catch { }
-                            // #endregion
-                            throw;
-                        }
-                    });
-                    
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Dispatcher.InvokeAsync completed",
-                            new { finalItemsCount = _thumbnailItems.Count });
-                    }
-                    catch { }
-                    // #endregion
-                }
-                catch (Exception dispatcherEx)
-                {
-                    // #region agent log
-                    try
-                    {
-                        Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                            "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                            "Exception awaiting Dispatcher.InvokeAsync",
-                            new { exceptionType = dispatcherEx.GetType().Name, message = dispatcherEx.Message, stackTrace = dispatcherEx.StackTrace, innerException = dispatcherEx.InnerException?.ToString() });
-                    }
-                    catch { }
-                    // #endregion
-                    throw;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Operation cancelled",
-                        null);
-                }
-                catch { }
-                // #endregion
-                // キャンセルされた場合は何もしない
-            }
-            catch (Exception ex)
-            {
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Exception occurred",
-                        new { errorMessage = ex.Message, stackTrace = ex.StackTrace, exceptionType = ex.GetType().Name, innerException = ex.InnerException?.ToString() });
-                }
-                catch { }
-                // #endregion
-                System.Diagnostics.Debug.WriteLine($"サムネイル生成エラー: {ex.Message}");
-            }
-            finally
-            {
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Finally block entered",
-                        new { hasTask = _thumbnailTask != null, taskStatus = _thumbnailTask?.Status.ToString() });
-                }
-                catch { }
-                // #endregion
-                
-                // タスクが完了するまで待つ（リソースを確実に解放するため）
-                if (_thumbnailTask != null)
-                {
-                    try
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync:finally",
-                                "Waiting for task to complete",
-                                new { taskStatus = _thumbnailTask.Status.ToString(), isCompleted = _thumbnailTask.IsCompleted });
-                        }
-                        catch { }
-                        // #endregion
-                        
-                        // タスクが完了するまで最大3秒待つ
-                        if (!_thumbnailTask.IsCompleted)
-                        {
-                            _thumbnailTask.Wait(TimeSpan.FromSeconds(3));
-                        }
-                        
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync:finally",
-                                "Task wait completed",
-                                new { taskStatus = _thumbnailTask.Status.ToString(), isCompleted = _thumbnailTask.IsCompleted, isFaulted = _thumbnailTask.IsFaulted });
-                        }
-                        catch { }
-                        // #endregion
-                    }
-                    catch (Exception waitEx)
-                    {
-                        // #region agent log
-                        try
-                        {
-                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                                "TimelineViewModel.cs:GenerateThumbnailsAsync:finally",
-                                "Exception waiting for task",
-                                new { exceptionType = waitEx.GetType().Name, message = waitEx.Message });
-                        }
-                        catch { }
-                        // #endregion
-                    }
-                }
-                
-                // タスクをリセットする前に、確実に完了したことを確認
-                _thumbnailTask = null;
-                
-                // 生成フラグをリセット
-                _isGeneratingThumbnails = false;
-                
-                // #region agent log
-                try
-                {
-                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                        "TimelineViewModel.cs:GenerateThumbnailsAsync",
-                        "Finally block completed",
-                        null);
-                }
-                catch { }
-                // #endregion
-            }
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
         public void Dispose()
         {
-            _thumbnailCancellation?.Cancel();
-            _thumbnailCancellation?.Dispose();
+            // セグメントイベントの購読を解除
+            _segmentManager.SegmentAdded -= OnSegmentAdded;
+            _segmentManager.SegmentRemoved -= OnSegmentRemoved;
+            _segmentManager.SegmentUpdated -= OnSegmentUpdated;
+
             _disposables?.Dispose();
         }
-    }
-
-    /// <summary>
-    /// サムネイルアイテム（Timeline機能専用）
-    /// </summary>
-    public class ThumbnailItem
-    {
-        public double TimePosition { get; set; }
-        public System.Windows.Media.Imaging.BitmapSource? Thumbnail { get; set; }
-        public double YPosition { get; set; }
-        
-        /// <summary>
-        /// このフレームがアクティブかどうか（コマンド行が存在する時間帯かどうか）
-        /// </summary>
-        public ReactiveProperty<bool> IsActive { get; } = new ReactiveProperty<bool>(true);
     }
 }

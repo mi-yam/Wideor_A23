@@ -30,46 +30,64 @@
                           ViewModel="{Binding}" />
 
         <!-- メインコンテンツエリア -->
-        <Grid Grid.Row="1">
-        <Grid.ColumnDefinitions>
-            <!-- C1 + C2: Timeline Area (TimeRuler + FilmStrip) -->
-            <ColumnDefinition Width="360" MinWidth="260" />
-            <!-- C3: Link Area (80px) - プレースホルダー -->
-            <ColumnDefinition Width="80" />
-            <!-- C4: Text Area (残り全て) -->
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+        <Grid Grid.Row="1" ClipToBounds="True">
+            <Grid.ColumnDefinitions>
+                <!-- C0: Timeline Area (TimeRuler 60px + FilmStrip 可変) -->
+                <ColumnDefinition Width="700" MinWidth="400" />
+                <!-- C1: GridSplitter (フィルムエリアとリンクエリアの境界) -->
+                <ColumnDefinition Width="5" />
+                <!-- C2: Link Area -->
+                <ColumnDefinition Width="80" MinWidth="60" />
+                <!-- C3: Text Area (残り全て) -->
+                <ColumnDefinition Width="*" MinWidth="300" />
+            </Grid.ColumnDefinitions>
 
-        <!-- C1 + C2: TimelinePage (TimeRuler + FilmStrip) -->
-        <timeline:TimelinePage Grid.Column="0"
-                              ViewModel="{Binding TimelineViewModel}"
-                              BorderBrush="#444444"
-                              BorderThickness="0,0,1,0" />
+            <!-- C0: TimelinePage (TimeRuler + FilmStrip) -->
+            <timeline:TimelinePage Grid.Column="0"
+                                  ViewModel="{Binding TimelineViewModel}"
+                                  BorderBrush="#444444"
+                                  BorderThickness="0,0,0,0"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  ClipToBounds="True" />
 
-        <!-- C3: Link Area (プレースホルダー - 将来実装) -->
-        <Border Grid.Column="1"
-                Background="#2A2A2A"
-                BorderBrush="#444444"
-                BorderThickness="0,0,1,0">
-            <TextBlock Text="Link Area"
-                      Foreground="#666666"
-                      FontSize="12"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      TextAlignment="Center" />
-        </Border>
+            <!-- C1: GridSplitter (フィルムエリアとリンクエリアの境界) -->
+            <GridSplitter Grid.Column="1"
+                         HorizontalAlignment="Stretch"
+                         VerticalAlignment="Stretch"
+                         Background="#444444"
+                         ResizeDirection="Columns"
+                         ShowsPreview="False"
+                         Cursor="SizeWE" />
 
-        <!-- C4: EditorView -->
-        <editor:EditorView Grid.Column="2"
-                          ViewModel="{Binding EditorViewModel}" />
+            <!-- C2: Link Area (プレースホルダー - 将来実装) -->
+            <Border Grid.Column="2"
+                    Background="#2A2A2A"
+                    BorderBrush="#444444"
+                    BorderThickness="0,0,1,0"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch">
+                <TextBlock Text="Link Area"
+                          Foreground="#666666"
+                          FontSize="12"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          TextAlignment="Center" />
+            </Border>
 
-        <!-- PlayerView (ZIndex最前面、プレビューモード/シアターモード用) -->
-        <player:PlayerView Grid.Column="0"
-                          Grid.ColumnSpan="4"
-                          ViewModel="{Binding PlayerViewModel}"
-                          Panel.ZIndex="100"
-                          Visibility="Collapsed"
-                          x:Name="PlayerViewOverlay" />
+            <!-- C3: EditorView -->
+            <editor:EditorView Grid.Column="3"
+                              ViewModel="{Binding EditorViewModel}"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
+
+            <!-- PlayerView (ZIndex最前面、プレビューモード/シアターモード用) -->
+            <player:PlayerView Grid.Column="0"
+                              Grid.ColumnSpan="4"
+                              ViewModel="{Binding PlayerViewModel}"
+                              Panel.ZIndex="100"
+                              Visibility="Collapsed"
+                              x:Name="PlayerViewOverlay" />
         </Grid>
     </Grid>
 </fluent:RibbonWindow>

@@ -1,20 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Specialized;
 using System.Reactive.Disposables;
-using System.Reactive.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
-using Reactive.Bindings;
-using Reactive.Bindings.Extensions;
 using Wideor.App.Shared.Domain;
 
 namespace Wideor.App.Features.Timeline
 {
     /// <summary>
     /// FilmStripView.xaml の相互作用ロジック
-    /// サムネイルリストを表示するビュー（Timeline機能専用）
+    /// 通常スクロール型：クリップサイズに応じて複数のクリップを表示
     /// </summary>
     public partial class FilmStripView : UserControl
     {
@@ -35,6 +31,8 @@ namespace Wideor.App.Features.Timeline
                 new PropertyMetadata(null, OnViewModelChanged));
 
         private CompositeDisposable? _disposables;
+        private int _totalClips = 0;
+        private double _clipHeight = 220.0; // デフォルトのクリップ高さ
 
         public FilmStripView()
         {
@@ -45,18 +43,15 @@ namespace Wideor.App.Features.Timeline
             InitializeComponent();
             Loaded += FilmStripView_Loaded;
             Unloaded += FilmStripView_Unloaded;
+            SizeChanged += FilmStripView_SizeChanged;
         }
 
         private static void OnViewModelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             if (d is FilmStripView view && e.NewValue is TimelineViewModel viewModel)
             {
-                view.DataContext = viewModel; // DataContextをViewModelに設定
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "FilmStripView.xaml.cs:OnViewModelChanged",
-                    "ViewModel changed",
-                    new { hasViewModel = viewModel != null, thumbnailItemsCount = viewModel.ThumbnailItems.Count });
-                view.SubscribeToScrollCoordinator();
+                view.DataContext = viewModel;
+                view.SubscribeToVideoSegments();
             }
         }
 
@@ -65,200 +60,242 @@ namespace Wideor.App.Features.Timeline
             Wideor.App.Shared.Infra.LogHelper.WriteLog(
                 "FilmStripView.xaml.cs:Loaded",
                 "FilmStripView loaded",
-                new { hasViewModel = ViewModel != null, hasDataContext = DataContext != null, thumbnailItemsCount = ViewModel?.ThumbnailItems.Count ?? 0 });
-            SubscribeToScrollCoordinator();
+                new { hasViewModel = ViewModel != null, actualHeight = ActualHeight });
             
-            // 初期表示範囲を更新（EditorViewModelが設定されている場合のみ）
-            var scrollViewer = GetScrollViewer(FilmStripListBox);
-            if (scrollViewer != null)
-            {
-                scrollViewer.Loaded += (s, args) =>
-                {
-                    // EditorViewModelが設定されている場合のみ更新
-                    if (ViewModel?.EditorViewModel != null)
-                    {
-                        UpdateVisibleThumbnailStates();
-                    }
-                };
-            }
-        }
-
-        /// <summary>
-        /// ListBox内のScrollViewerを取得
-        /// </summary>
-        private static ScrollViewer? GetScrollViewer(DependencyObject depObj)
-        {
-            if (depObj == null) return null;
-
-            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(depObj); i++)
-            {
-                var child = System.Windows.Media.VisualTreeHelper.GetChild(depObj, i);
-                if (child is ScrollViewer scrollViewer)
-                {
-                    return scrollViewer;
-                }
-                var childOfChild = GetScrollViewer(child);
-                if (childOfChild != null)
-                {
-                    return childOfChild;
-                }
-            }
-            return null;
+            UpdateClipHeight();
+            SubscribeToVideoSegments();
+            UpdateClipIndicator();
         }
 
         private void FilmStripView_Unloaded(object sender, RoutedEventArgs e)
         {
             _disposables?.Dispose();
             _disposables = null;
-            
-            // タイマーをクリーンアップ
-            _scrollThrottleTimer?.Stop();
-            _scrollThrottleTimer = null;
         }
 
-        private void SubscribeToScrollCoordinator()
+        private void FilmStripView_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (e.HeightChanged)
+            {
+                UpdateClipHeight();
+            }
+        }
+
+        /// <summary>
+        /// クリップの高さを更新（FilmStripViewの高さに基づく）
+        /// </summary>
+        private void UpdateClipHeight()
+        {
+            // FilmStripViewの高さの80%をクリップの高さとして使用（余白を確保）
+            var newHeight = Math.Max(150, ActualHeight * 0.8);
+            
+            if (Math.Abs(_clipHeight - newHeight) > 1)
+            {
+                _clipHeight = newHeight;
+                UpdateAllClipsHeight();
+                
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "FilmStripView.xaml.cs:UpdateClipHeight",
+                    "Clip height updated",
+                    new { clipHeight = _clipHeight, actualHeight = ActualHeight });
+            }
+        }
+
+        /// <summary>
+        /// 全てのVideoSegmentViewのClipHeightを更新
+        /// </summary>
+        private void UpdateAllClipsHeight()
+        {
+            if (FilmStripItemsControl == null) return;
+            
+            foreach (var item in FilmStripItemsControl.Items)
+            {
+                var container = FilmStripItemsControl.ItemContainerGenerator.ContainerFromItem(item);
+                if (container != null)
+                {
+                    var videoSegmentView = FindVisualChild<VideoSegmentView>(container);
+                    if (videoSegmentView != null)
+                    {
+                        videoSegmentView.ClipHeight = _clipHeight;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// ビジュアルツリーから子要素を検索
+        /// </summary>
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is T typedChild)
+                {
+                    return typedChild;
+                }
+                var result = FindVisualChild<T>(child);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+            return null;
+        }
+
+        private void SubscribeToVideoSegments()
         {
             _disposables?.Dispose();
             _disposables = new CompositeDisposable();
 
-            if (ViewModel == null)
-                return;
+            var viewModel = ViewModel;
+            if (viewModel == null) return;
 
-            // ListBox内のScrollViewerを取得
-            var scrollViewer = GetScrollViewer(FilmStripListBox);
-            if (scrollViewer == null)
-                return;
+            // ItemsSourceを設定
+            FilmStripItemsControl.ItemsSource = viewModel.VideoSegments;
 
-            // ScrollCoordinatorにScrollViewerを登録
-            var registration = ViewModel.ScrollCoordinator.RegisterScrollViewer(scrollViewer);
-            _disposables.Add(registration);
-
-            // スクロール位置の変更を購読してScrollViewerを更新（スロットル付き、UIスレッドで実行）
-            ViewModel.ScrollPosition
-                .Throttle(TimeSpan.FromMilliseconds(16)) // 60fps相当の更新レート
-                .Subscribe(position =>
+            // コレクション変更を監視
+            if (viewModel.VideoSegments is INotifyCollectionChanged notifyCollection)
+            {
+                notifyCollection.CollectionChanged += OnVideoSegmentsChanged;
+                _disposables.Add(Disposable.Create(() =>
                 {
-                    // UIスレッドで実行されることを保証
-                    if (Dispatcher.CheckAccess())
-                    {
-                        if (scrollViewer != null && scrollViewer.ScrollableHeight > 0)
-                        {
-                            var offset = position * scrollViewer.ScrollableHeight;
-                            scrollViewer.ScrollToVerticalOffset(offset);
-                        }
-                    }
-                    else
-                    {
-                        Dispatcher.InvokeAsync(() =>
-                        {
-                            if (scrollViewer != null && scrollViewer.ScrollableHeight > 0)
-                            {
-                                var offset = position * scrollViewer.ScrollableHeight;
-                                scrollViewer.ScrollToVerticalOffset(offset);
-                            }
-                        }, DispatcherPriority.Normal);
-                    }
-                })
-                .AddTo(_disposables);
+                    notifyCollection.CollectionChanged -= OnVideoSegmentsChanged;
+                }));
+            }
 
-            // スクロールイベントを監視して表示範囲を更新（スロットル付き）
-            scrollViewer.ScrollChanged += FilmStripScrollViewer_ScrollChanged;
-            
-            // EditorViewModelのSceneBlocksが変更されたら表示範囲を更新
-            SubscribeToEditorViewModel();
+            // 初期状態を更新
+            _totalClips = viewModel.VideoSegments.Count;
+            UpdateClipIndicator();
         }
 
-        private void SubscribeToEditorViewModel()
+        private void OnVideoSegmentsChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
-            if (ViewModel?.EditorViewModel == null)
-                return;
-
-            // EditorViewModelのSceneBlocksが変更されたら表示範囲を更新
-            ViewModel.EditorViewModel.SceneBlocks
-                .Throttle(TimeSpan.FromMilliseconds(100)) // 100msのスロットル
-                .Subscribe(_ =>
+            Dispatcher.InvokeAsync(() =>
+            {
+                _totalClips = ViewModel?.VideoSegments.Count ?? 0;
+                
+                // 新しいクリップが追加された場合、最後までスクロール
+                if (e.Action == NotifyCollectionChangedAction.Add && _totalClips > 0)
                 {
-                    // UIスレッドで実行
-                    if (Dispatcher.CheckAccess())
+                    // レイアウト更新後にスクロールとクリップサイズ更新
+                    Dispatcher.InvokeAsync(() =>
                     {
-                        UpdateVisibleThumbnailStates();
-                    }
-                    else
-                    {
-                        Dispatcher.BeginInvoke(new Action(UpdateVisibleThumbnailStates), DispatcherPriority.Normal);
-                    }
-                })
-                .AddTo(_disposables);
+                        UpdateAllClipsHeight();
+                        FilmStripScrollViewer.ScrollToEnd();
+                    }, System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+                else
+                {
+                    // その他の変更時もクリップサイズを更新
+                    UpdateAllClipsHeight();
+                }
+                
+                UpdateClipIndicator();
+                
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "FilmStripView.xaml.cs:OnVideoSegmentsChanged",
+                    "Collection changed",
+                    new { action = e.Action.ToString(), totalClips = _totalClips });
+            });
         }
 
-        private System.Windows.Threading.DispatcherTimer? _scrollThrottleTimer;
-
+        /// <summary>
+        /// スクロール変更時にインジケーターを更新
+        /// </summary>
         private void FilmStripScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            try
+            UpdateClipIndicator();
+        }
+
+        /// <summary>
+        /// クリップインジケーターを更新（表示中のクリップ範囲を表示）
+        /// </summary>
+        private void UpdateClipIndicator()
+        {
+            if (_totalClips == 0)
             {
-                if (ViewModel == null)
-                    return;
-
-                // スクロールイベントをスロットル（100ms間隔で更新）
-                if (_scrollThrottleTimer == null)
-                {
-                    _scrollThrottleTimer = new System.Windows.Threading.DispatcherTimer
-                    {
-                        Interval = TimeSpan.FromMilliseconds(100)
-                    };
-                    _scrollThrottleTimer.Tick += (s, args) =>
-                    {
-                        _scrollThrottleTimer.Stop();
-                        UpdateVisibleThumbnailStates();
-                    };
-                }
-
-                // タイマーをリセット
-                _scrollThrottleTimer.Stop();
-                _scrollThrottleTimer.Start();
+                ClipIndexIndicator.Text = "0 / 0";
+                return;
             }
-            catch (Exception ex)
+
+            // 現在表示中のクリップを検出
+            var visibleClips = GetVisibleClipIndices();
+            
+            if (visibleClips.Count == 0)
             {
-                // エラーをログに記録（クラッシュを防ぐ）
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "FilmStripView.xaml.cs:FilmStripScrollViewer_ScrollChanged",
-                    "Error in scroll changed handler",
-                    new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+                ClipIndexIndicator.Text = $"1-{_totalClips} / {_totalClips}";
+            }
+            else if (visibleClips.Count == 1)
+            {
+                ClipIndexIndicator.Text = $"{visibleClips[0] + 1} / {_totalClips}";
+            }
+            else
+            {
+                var first = visibleClips[0] + 1;
+                var last = visibleClips[visibleClips.Count - 1] + 1;
+                ClipIndexIndicator.Text = $"{first}-{last} / {_totalClips}";
             }
         }
 
-        private void UpdateVisibleThumbnailStates()
+        /// <summary>
+        /// 現在表示中のクリップのインデックスを取得
+        /// </summary>
+        private List<int> GetVisibleClipIndices()
         {
-            try
+            var visibleIndices = new List<int>();
+            
+            if (FilmStripItemsControl == null || _totalClips == 0) 
+                return visibleIndices;
+
+            var scrollViewerTop = 0.0;
+            var scrollViewerBottom = FilmStripScrollViewer.ActualHeight;
+            var verticalOffset = FilmStripScrollViewer.VerticalOffset;
+
+            for (int i = 0; i < _totalClips; i++)
             {
-                // UIスレッドで実行されていることを確認
-                if (!Dispatcher.CheckAccess())
+                var container = FilmStripItemsControl.ItemContainerGenerator.ContainerFromIndex(i) as FrameworkElement;
+                if (container == null) continue;
+
+                // コンテナの位置を取得
+                var transform = container.TransformToAncestor(FilmStripScrollViewer);
+                var topLeft = transform.Transform(new Point(0, 0));
+                var containerTop = topLeft.Y;
+                var containerBottom = containerTop + container.ActualHeight;
+
+                // 表示領域と重なっているかチェック
+                if (containerBottom > scrollViewerTop && containerTop < scrollViewerBottom)
                 {
-                    Dispatcher.InvokeAsync(UpdateVisibleThumbnailStates);
-                    return;
+                    visibleIndices.Add(i);
                 }
-
-                if (ViewModel == null || ViewModel.EditorViewModel == null)
-                    return;
-
-                var scrollViewer = GetScrollViewer(FilmStripListBox);
-                if (scrollViewer == null)
-                    return;
-
-                var viewportTop = scrollViewer.VerticalOffset;
-                var viewportBottom = viewportTop + scrollViewer.ViewportHeight;
-                var sceneBlocks = ViewModel.EditorViewModel.SceneBlocks.Value ?? Array.Empty<SceneBlock>();
-
-                ViewModel.UpdateVisibleThumbnailStates(viewportTop, viewportBottom, sceneBlocks);
             }
-            catch (Exception ex)
+
+            return visibleIndices;
+        }
+
+        /// <summary>
+        /// 指定したインデックスのクリップにスクロール
+        /// </summary>
+        public void ScrollToClipIndex(int index)
+        {
+            if (_totalClips == 0 || index < 0 || index >= _totalClips) return;
+
+            var container = FilmStripItemsControl.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
+            if (container != null)
             {
-                // エラーをログに記録（クラッシュを防ぐ）
-                Wideor.App.Shared.Infra.LogHelper.WriteLog(
-                    "FilmStripView.xaml.cs:UpdateVisibleThumbnailStates",
-                    "Error updating visible thumbnail states",
-                    new { exceptionType = ex.GetType().Name, message = ex.Message, stackTrace = ex.StackTrace });
+                container.BringIntoView();
+            }
+        }
+
+        /// <summary>
+        /// 現在表示中の最初のクリップインデックス
+        /// </summary>
+        public int CurrentClipIndex
+        {
+            get
+            {
+                var visible = GetVisibleClipIndices();
+                return visible.Count > 0 ? visible[0] : 0;
             }
         }
     }
