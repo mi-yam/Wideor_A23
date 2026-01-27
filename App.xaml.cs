@@ -22,11 +22,43 @@ namespace Wideor_A23
     public partial class App : Application
     {
         private ServiceProvider? _serviceProvider;
+        private static LibVLC? _sharedLibVLC;
+        private static readonly object _libVLCLock = new object();
 
         /// <summary>
         /// DIコンテナのServiceProvider（外部からアクセス可能）
         /// </summary>
         public static ServiceProvider? ServiceProvider => (Current as App)?._serviceProvider;
+
+        /// <summary>
+        /// 共有LibVLCインスタンス（アプリケーション全体で1つのみ使用）
+        /// 公式ベストプラクティス: "Only create one LibVLC instance at all times"
+        /// </summary>
+        public static LibVLC SharedLibVLC
+        {
+            get
+            {
+                if (_sharedLibVLC == null)
+                {
+                    lock (_libVLCLock)
+                    {
+                        if (_sharedLibVLC == null)
+                        {
+                            _sharedLibVLC = new LibVLC(
+                                "--no-video-title-show",  // 動画タイトルを非表示
+                                "--no-snapshot-preview"   // スナップショットプレビューを無効
+                            );
+                            
+                            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                                "App.xaml.cs:SharedLibVLC",
+                                "Shared LibVLC instance created",
+                                new { version = _sharedLibVLC.Version });
+                        }
+                    }
+                }
+                return _sharedLibVLC;
+            }
+        }
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -208,6 +240,29 @@ namespace Wideor_A23
         protected override void OnExit(ExitEventArgs e)
         {
             _serviceProvider?.Dispose();
+            
+            // LibVLCインスタンスを破棄（公式ベストプラクティス: 必ずDisposeする）
+            if (_sharedLibVLC != null)
+            {
+                try
+                {
+                    _sharedLibVLC.Dispose();
+                    _sharedLibVLC = null;
+                    
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "App.xaml.cs:OnExit",
+                        "Shared LibVLC instance disposed",
+                        null);
+                }
+                catch (Exception ex)
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "App.xaml.cs:OnExit",
+                        "Failed to dispose LibVLC",
+                        new { error = ex.Message });
+                }
+            }
+            
             base.OnExit(e);
         }
 

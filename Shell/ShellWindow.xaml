@@ -79,6 +79,7 @@
             <!-- C3: EditorView -->
             <editor:EditorView Grid.Column="3"
                               ViewModel="{Binding EditorViewModel}"
+                              TimelineViewModel="{Binding TimelineViewModel}"
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Stretch" />
 

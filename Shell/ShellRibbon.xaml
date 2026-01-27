@@ -8,8 +8,12 @@
              mc:Ignorable="d"
              d:DesignHeight="150" d:DesignWidth="1400">
     <!-- DataContextはViewModelプロパティから自動的に設定される -->
+    <!-- アニメーションスタイルはApp.xamlでグローバルに定義されています -->
 
-    <fluent:Ribbon>
+    <fluent:Ribbon x:Name="MainRibbon"
+                   IsMinimized="{Binding IsRibbonMinimized.Value, Mode=TwoWay, FallbackValue=False}"
+                   SelectedTabChanged="MainRibbon_SelectedTabChanged"
+                   IsMinimizedChanged="MainRibbon_IsMinimizedChanged">
         <!-- ファイルタブ -->
         <fluent:RibbonTabItem Header="ファイル">
             <!-- プロジェクトグループ -->
@@ -141,6 +145,15 @@
                                        Command="{Binding ToggleDarkModeCommand}"
                                        IsChecked="{Binding IsDarkMode.Value, Mode=TwoWay}"
                                        ToolTip="ダークモードとライトモードを切り替えます" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
+
+            <!-- リボングループ -->
+            <fluent:RibbonGroupBox Header="リボン">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:ToggleButton Header="リボンを最小化"
+                                       IsChecked="{Binding IsRibbonMinimized.Value, Mode=TwoWay}"
+                                       ToolTip="リボンを最小化/展開します (Ctrl+F1でも切り替え可能)" />
                 </StackPanel>
             </fluent:RibbonGroupBox>
         </fluent:RibbonTabItem>

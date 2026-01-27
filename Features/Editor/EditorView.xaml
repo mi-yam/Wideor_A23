@@ -15,7 +15,7 @@
         <!-- AvalonEdit（ライトモード: 白背景・黒文字、ダークモード: 暗い背景・明るい文字） -->
         <avalon:TextEditor x:Name="TextEditorControl"
                           FontFamily="Meiryo UI"
-                          FontSize="14"
+                          FontSize="15"
                           ShowLineNumbers="True"
                           Background="{DynamicResource ContentBackgroundBrush}"
                           Foreground="{DynamicResource PrimaryTextBrush}"

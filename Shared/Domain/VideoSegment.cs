@@ -27,6 +27,8 @@ namespace Wideor.App.Shared.Domain
         private int _id;
         private double _startTime;
         private double _endTime;
+        private double _mediaStartOffset;  // 元動画内の開始位置（秒）
+        private double _mediaEndOffset;    // 元動画内の終了位置（秒）
         private bool _visible = true;
         private SegmentState _state = SegmentState.Stopped;
         private string _videoFilePath = string.Empty;
@@ -43,7 +45,7 @@ namespace Wideor.App.Shared.Domain
             set => SetProperty(ref _id, value);
         }
 
-        /// <summary>元動画内の開始時間（秒）</summary>
+        /// <summary>タイムライン上の開始時間（秒）</summary>
         public double StartTime
         {
             get => _startTime;
@@ -57,7 +59,7 @@ namespace Wideor.App.Shared.Domain
             }
         }
 
-        /// <summary>元動画内の終了時間（秒）</summary>
+        /// <summary>タイムライン上の終了時間（秒）</summary>
         public double EndTime
         {
             get => _endTime;
@@ -69,6 +71,26 @@ namespace Wideor.App.Shared.Domain
                     OnPropertyChanged(nameof(EffectiveDuration));
                 }
             }
+        }
+
+        /// <summary>
+        /// 元動画内の開始位置（秒）
+        /// VLCの:start-timeオプションに使用される
+        /// </summary>
+        public double MediaStartOffset
+        {
+            get => _mediaStartOffset;
+            set => SetProperty(ref _mediaStartOffset, value);
+        }
+
+        /// <summary>
+        /// 元動画内の終了位置（秒）
+        /// VLCの:stop-timeオプションに使用される
+        /// </summary>
+        public double MediaEndOffset
+        {
+            get => _mediaEndOffset;
+            set => SetProperty(ref _mediaEndOffset, value);
         }
 
         /// <summary>表示/非表示フラグ</summary>

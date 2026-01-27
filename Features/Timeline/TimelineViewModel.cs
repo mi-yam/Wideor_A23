@@ -109,9 +109,34 @@ namespace Wideor.App.Features.Timeline
         public IReadOnlyReactiveProperty<bool> IsLoaded { get; }
 
         /// <summary>
-        /// 現在の再生位置（秒）
+        /// 現在の再生位置（秒）- VideoEngine経由
         /// </summary>
         public IReadOnlyReactiveProperty<double> CurrentPosition { get; }
+
+        /// <summary>
+        /// 現在のセグメント再生位置（秒）- VideoSegmentViewから更新される
+        /// </summary>
+        public ReactiveProperty<double> CurrentSegmentPlaybackPosition { get; }
+
+        /// <summary>
+        /// CUTコマンドを挿入するアクション（ShellViewModelから設定される）
+        /// </summary>
+        public Action<double>? InsertCutCommandAction { get; set; }
+
+        /// <summary>
+        /// HIDEコマンドを挿入するアクション（ShellViewModelから設定される）
+        /// </summary>
+        public Action<double, double>? InsertHideCommandAction { get; set; }
+
+        /// <summary>
+        /// 前回のCUT位置（HIDE範囲の開始点として使用）
+        /// </summary>
+        public double? LastCutPosition { get; set; }
+
+        /// <summary>
+        /// HIDEモードが有効かどうか（2回目のEnterでHIDEを挿入）
+        /// </summary>
+        public bool IsHideModeEnabled { get; set; } = false;
 
         /// <summary>
         /// プロジェクト設定（テロップ位置設定を含む）
@@ -228,9 +253,13 @@ namespace Wideor.App.Features.Timeline
                 })
                 .AddTo(_disposables);
 
-            // 現在の再生位置
+            // 現在の再生位置（VideoEngine経由）
             CurrentPosition = _videoEngine.CurrentPosition
                 .ToReadOnlyReactiveProperty(0.0)
+                .AddTo(_disposables);
+
+            // 現在のセグメント再生位置（VideoSegmentViewから更新される）
+            CurrentSegmentPlaybackPosition = new ReactiveProperty<double>(0.0)
                 .AddTo(_disposables);
             
             // 再生位置を監視して、セグメントの終了時間に達したら停止

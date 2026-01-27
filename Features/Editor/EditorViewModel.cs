@@ -151,12 +151,17 @@ namespace Wideor.App.Features.Editor
                 .AddTo(_disposables);
 
             // カーソル位置またはテキストが変更されたらセパレータを解析
+            // Throttle はバックグラウンドスレッドで実行されるため、UIスレッドで実行する
             Observable.CombineLatest(
                 CaretPosition,
                 Text,
                 (caret, text) => (caret, text))
                 .Throttle(TimeSpan.FromMilliseconds(100)) // デバウンス
-                .Subscribe(x => UpdateCurrentSeparator(x.caret, x.text))
+                .Subscribe(x =>
+                {
+                    System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+                        UpdateCurrentSeparator(x.caret, x.text));
+                })
                 .AddTo(_disposables);
 
             IsAnchorPending = _anchorLogic.IsRecording

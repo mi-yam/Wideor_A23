@@ -157,6 +157,11 @@ namespace Wideor.App.Shell
         /// </summary>
         public ReactiveProperty<bool> IsDarkMode { get; }
 
+        /// <summary>
+        /// リボンが最小化されているかどうか
+        /// </summary>
+        public ReactiveProperty<bool> IsRibbonMinimized { get; }
+
         // --- 編集コマンド（テキストエリアに挿入） ---
 
         /// <summary>
@@ -219,6 +224,10 @@ namespace Wideor.App.Shell
             IsDarkMode = new ReactiveProperty<bool>(false)
                 .AddTo(_disposables);
 
+            // リボン最小化（初期値: false = 展開状態）
+            IsRibbonMinimized = new ReactiveProperty<bool>(false)
+                .AddTo(_disposables);
+
             // 各FeatureのViewModelを初期化
             PlayerViewModel = new PlayerViewModel(videoEngine);
             TimelineViewModel = new TimelineViewModel(scrollCoordinator, timeRulerService, segmentManager, commandExecutor, commandParser, videoEngine);
@@ -230,6 +239,28 @@ namespace Wideor.App.Shell
                 commandParser: commandParser,
                 commandExecutor: commandExecutor,
                 segmentManager: segmentManager);
+
+            // TimelineViewModelにCUTコマンド挿入アクションを設定
+            TimelineViewModel.InsertCutCommandAction = (positionSeconds) =>
+            {
+                var cutCommand = FormatTimeCommand("CUT", positionSeconds);
+                AppendCommandToEditor(cutCommand);
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:InsertCutCommandAction",
+                    "CUT command inserted from VideoSegmentView",
+                    new { positionSeconds, command = cutCommand });
+            };
+
+            // TimelineViewModelにHIDEコマンド挿入アクションを設定
+            TimelineViewModel.InsertHideCommandAction = (startTime, endTime) =>
+            {
+                var hideCommand = FormatRangeCommand("HIDE", startTime, endTime);
+                AppendCommandToEditor(hideCommand);
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:InsertHideCommandAction",
+                    "HIDE command inserted from VideoSegmentView",
+                    new { startTime, endTime, command = hideCommand });
+            };
 
             // リボンコマンドの初期化
             NewProjectCommand = new ReactiveCommand()
@@ -988,24 +1019,62 @@ namespace Wideor.App.Shell
                 })
                 .AddTo(_disposables);
 
-            // カーソル位置のセパレータを複製（パラグラフ対応）
+            // セパレータを挿入（パラグラフ対応）
+            // セパレータがある場合はその時間範囲を使用、ない場合は選択されているセグメントまたは最初のセグメントを使用
             InsertSeparatorCommand = new ReactiveCommand()
                 .WithSubscribe(() =>
                 {
-                    // エディタのカーソル位置からセパレータ時間範囲を取得
+                    double startTime;
+                    double endTime;
+
+                    // まずカーソル位置のセパレータ時間範囲を確認
                     var separatorTimeRange = EditorViewModel.CurrentSeparatorTimeRange.Value;
-                    if (!separatorTimeRange.HasValue)
+                    if (separatorTimeRange.HasValue)
                     {
-                        System.Windows.MessageBox.Show(
-                            "エディタでパラグラフ（セパレータの下の行）にカーソルを置いてください。",
-                            "情報",
-                            System.Windows.MessageBoxButton.OK,
-                            System.Windows.MessageBoxImage.Information);
-                        return;
+                        startTime = separatorTimeRange.Value.startTime;
+                        endTime = separatorTimeRange.Value.endTime;
+                    }
+                    else
+                    {
+                        // セパレータがない場合は、選択されているセグメントまたは最初のセグメントを使用
+                        var selectedSegment = TimelineViewModel.SelectedSegment?.Value;
+                        var segments = TimelineViewModel.VideoSegments;
+
+                        if (selectedSegment != null)
+                        {
+                            startTime = selectedSegment.StartTime;
+                            endTime = selectedSegment.EndTime;
+                        }
+                        else if (segments != null && segments.Count > 0)
+                        {
+                            // 最初のセグメントを使用
+                            var firstSegment = segments.FirstOrDefault();
+                            if (firstSegment != null)
+                            {
+                                startTime = firstSegment.StartTime;
+                                endTime = firstSegment.EndTime;
+                            }
+                            else
+                            {
+                                System.Windows.MessageBox.Show(
+                                    "セグメントがありません。動画を読み込んでください。",
+                                    "情報",
+                                    System.Windows.MessageBoxButton.OK,
+                                    System.Windows.MessageBoxImage.Information);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            System.Windows.MessageBox.Show(
+                                "セグメントがありません。動画を読み込んでください。",
+                                "情報",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Information);
+                            return;
+                        }
                     }
 
-                    var startTime = separatorTimeRange.Value.startTime;
-                    var endTime = separatorTimeRange.Value.endTime;
                     var separator = FormatSeparator(startTime, endTime);
                     AppendCommandToEditor(separator);
 
@@ -1219,33 +1288,26 @@ namespace Wideor.App.Shell
                     var headerLines = lines.Take(headerEndIndex + 1).ToList();
                     var bodyLines = lines.Skip(headerEndIndex + 1).ToList();
 
-                    // 既存のLOADコマンドがあるかチェック
-                    var existingLoadIndex = bodyLines.FindIndex(line => 
-                        line.TrimStart().StartsWith("LOAD ", StringComparison.OrdinalIgnoreCase));
-
-                    if (existingLoadIndex >= 0)
+                    // 新しいLOADコマンドを末尾に追加（下に追加）
+                    // 末尾が空行でなければ空行を挟む
+                    if (bodyLines.Count > 0)
                     {
-                        // 既存のLOADコマンドを置き換え
-                        bodyLines[existingLoadIndex] = loadCommandText;
-                    }
-                    else
-                    {
-                        // 新しいLOADコマンドを追加（空行を挟む）
-                        if (bodyLines.Count > 0 && !string.IsNullOrWhiteSpace(bodyLines[0]))
+                        var lastNonEmptyIndex = bodyLines.FindLastIndex(line => !string.IsNullOrWhiteSpace(line));
+                        if (lastNonEmptyIndex == bodyLines.Count - 1)
                         {
-                            bodyLines.Insert(0, string.Empty);
+                            bodyLines.Add(string.Empty);
                         }
-                        bodyLines.Insert(0, loadCommandText);
                     }
+                    bodyLines.Add(loadCommandText);
 
                     newText = string.Join(Environment.NewLine, headerLines.Concat(bodyLines));
                 }
                 else
                 {
-                    // Headerが存在しない場合、先頭に追加
+                    // Headerが存在しない場合、末尾に追加
                     if (!string.IsNullOrWhiteSpace(currentText))
                     {
-                        newText = loadCommandText + Environment.NewLine + Environment.NewLine + currentText;
+                        newText = currentText + Environment.NewLine + Environment.NewLine + loadCommandText;
                     }
                     else
                     {

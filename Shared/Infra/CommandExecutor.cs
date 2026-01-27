@@ -168,19 +168,23 @@ namespace Wideor.App.Shared.Infra
                 duration = 60.0; // デフォルト値（後で更新される）
             }
 
-            // 既存セグメントの最後の終了時間を取得
-            double startTime = 0.0;
+            // 既存セグメントの最後の終了時間を取得（タイムライン上の位置）
+            double timelineStart = 0.0;
             var existingSegments = _segmentManager.Segments;
             if (existingSegments.Count > 0)
             {
-                startTime = existingSegments.Max(s => s.EndTime);
+                timelineStart = existingSegments.Max(s => s.EndTime);
             }
 
             // 新しいセグメントを作成
+            // - StartTime/EndTime: タイムライン上の位置
+            // - MediaStartOffset/MediaEndOffset: 元動画内の位置（VLCの:start-time/:stop-timeに使用）
             var segment = new VideoSegment
             {
-                StartTime = startTime,
-                EndTime = startTime + duration,
+                StartTime = timelineStart,
+                EndTime = timelineStart + duration,
+                MediaStartOffset = 0.0,       // 新しい動画は0秒から開始
+                MediaEndOffset = duration,    // 動画の終了位置
                 Visible = true,
                 State = SegmentState.Stopped,
                 VideoFilePath = command.FilePath
@@ -191,7 +195,7 @@ namespace Wideor.App.Shared.Infra
             LogHelper.WriteLog(
                 "CommandExecutor:ExecuteLoadSync",
                 "LOAD command completed",
-                new { segmentId = segment.Id, duration = duration });
+                new { segmentId = segment.Id, duration = duration, mediaStartOffset = 0.0, mediaEndOffset = duration });
 
             return CommandResult.Ok(command, segment.Id);
         }
@@ -349,11 +353,19 @@ namespace Wideor.App.Shared.Infra
             var originalId = segment.Id;
             _segmentManager.RemoveSegment(segment.Id);
 
+            // CUT位置のタイムライン上のオフセットを計算
+            var cutOffset = cutTime - segment.StartTime;
+            
+            // 元動画内でのCUT位置を計算
+            var mediaCutPosition = segment.MediaStartOffset + cutOffset;
+
             // 前半のセグメント
             var segment1 = new VideoSegment
             {
                 StartTime = segment.StartTime,
                 EndTime = cutTime,
+                MediaStartOffset = segment.MediaStartOffset,  // 元動画内の開始位置（変更なし）
+                MediaEndOffset = mediaCutPosition,            // 元動画内のCUT位置
                 Visible = segment.Visible,
                 State = SegmentState.Stopped,
                 VideoFilePath = segment.VideoFilePath,
@@ -365,6 +377,8 @@ namespace Wideor.App.Shared.Infra
             {
                 StartTime = cutTime,
                 EndTime = segment.EndTime,
+                MediaStartOffset = mediaCutPosition,          // 元動画内のCUT位置から開始
+                MediaEndOffset = segment.MediaEndOffset,      // 元動画内の終了位置（変更なし）
                 Visible = segment.Visible,
                 State = SegmentState.Stopped,
                 VideoFilePath = segment.VideoFilePath
@@ -376,7 +390,15 @@ namespace Wideor.App.Shared.Infra
             LogHelper.WriteLog(
                 "CommandExecutor:ExecuteCut",
                 "CUT command completed",
-                new { cutTime = cutTime, segment1Id = segment1.Id, segment2Id = segment2.Id });
+                new { 
+                    cutTime = cutTime, 
+                    segment1Id = segment1.Id, 
+                    segment2Id = segment2.Id,
+                    segment1MediaStart = segment1.MediaStartOffset,
+                    segment1MediaEnd = segment1.MediaEndOffset,
+                    segment2MediaStart = segment2.MediaStartOffset,
+                    segment2MediaEnd = segment2.MediaEndOffset
+                });
 
             return CommandResult.Ok(command, segment1.Id, segment2.Id);
         }

@@ -122,6 +122,16 @@ namespace Wideor.App.Features.Editor
             if (e.Key != Key.Enter)
                 return;
 
+            LogHelper.WriteLog(
+                "EditorView:OnPreviewKeyDown",
+                "Enter key pressed",
+                new { 
+                    hasTimelineViewModel = TimelineViewModel != null,
+                    hasCurrentPlayingSegment = TimelineViewModel?.CurrentPlayingSegment?.Value != null,
+                    segmentState = TimelineViewModel?.CurrentPlayingSegment?.Value?.State.ToString() ?? "N/A",
+                    currentPosition = TimelineViewModel?.CurrentSegmentPlaybackPosition?.Value ?? -1
+                });
+
             // TimelineViewModelがない場合は通常のEnter動作
             if (TimelineViewModel == null)
                 return;
@@ -134,8 +144,18 @@ namespace Wideor.App.Features.Editor
             // 再生中の場合のみCUTコマンドを挿入
             if (currentSegment.State == SegmentState.Playing)
             {
-                // 現在の再生位置を取得
-                var currentPosition = TimelineViewModel.CurrentPosition?.Value ?? 0.0;
+                // 現在の再生位置を取得（VideoSegmentViewから通知された位置を使用）
+                var currentPosition = TimelineViewModel.CurrentSegmentPlaybackPosition?.Value ?? 0.0;
+
+                // 再生位置が有効でない場合はスキップ
+                if (currentPosition <= 0)
+                {
+                    LogHelper.WriteLog(
+                        "EditorView:OnPreviewKeyDown",
+                        "Invalid playback position, skipping CUT",
+                        new { currentPosition = currentPosition });
+                    return;
+                }
 
                 // CUTコマンドを生成
                 var cutCommand = FormatCutCommand(currentPosition);
@@ -152,8 +172,8 @@ namespace Wideor.App.Features.Editor
 
                 LogHelper.WriteLog(
                     "EditorView:OnPreviewKeyDown",
-                    "CUT command inserted",
-                    new { currentPosition = currentPosition, command = cutCommand });
+                    "CUT command inserted at current playback position",
+                    new { currentPosition = currentPosition, command = cutCommand, segmentId = currentSegment.Id });
             }
         }
 

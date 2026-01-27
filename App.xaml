@@ -10,6 +10,25 @@
                 <ResourceDictionary Source="pack://application:,,,/Fluent;component/Themes/Generic.xaml" />
             </ResourceDictionary.MergedDictionaries>
             
+            <!-- シンプルなアニメーション用のEasing関数 -->
+            <CubicEase x:Key="GlobalSmoothEase" EasingMode="EaseOut"/>
+            
+            <!-- Fluent.Ribbonグループボックス用カスタムスタイル（シンプルなフェードイン） -->
+            <Style TargetType="{x:Type fluent:RibbonGroupBox}" BasedOn="{StaticResource {x:Type fluent:RibbonGroupBox}}">
+                <Style.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation 
+                                    Storyboard.TargetProperty="Opacity"
+                                    From="0" To="1" Duration="0:0:0.15"
+                                    EasingFunction="{StaticResource GlobalSmoothEase}"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </EventTrigger>
+                </Style.Triggers>
+            </Style>
+            
             <!-- グローバルカラーリソース（デフォルト: ライトモード） -->
             <!-- 背景色 -->
             <SolidColorBrush x:Key="MainBackgroundBrush" Color="#F5F5F5"/>
