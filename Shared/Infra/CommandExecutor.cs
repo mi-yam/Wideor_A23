@@ -157,10 +157,14 @@ namespace Wideor.App.Shared.Infra
                 return CommandResult.Fail(command, $"動画ファイルが見つかりません: {command.FilePath}");
             }
 
-            // 動画の長さを取得
-            double duration = _videoEngine.CurrentTotalDuration;
+            // 動画の長さを直接取得（LibVLCを使用）
+            double duration = GetVideoDurationFromFile(command.FilePath);
             if (duration <= 0)
             {
+                LogHelper.WriteLog(
+                    "CommandExecutor:ExecuteLoadSync",
+                    "Failed to get video duration, using default",
+                    new { filePath = command.FilePath });
                 duration = 60.0; // デフォルト値（後で更新される）
             }
 
@@ -190,6 +194,41 @@ namespace Wideor.App.Shared.Infra
                 new { segmentId = segment.Id, duration = duration });
 
             return CommandResult.Ok(command, segment.Id);
+        }
+
+        /// <summary>
+        /// 動画ファイルから直接長さを取得
+        /// </summary>
+        private double GetVideoDurationFromFile(string filePath)
+        {
+            try
+            {
+                using var libVLC = new LibVLCSharp.Shared.LibVLC("--no-video", "--no-audio");
+                using var media = new LibVLCSharp.Shared.Media(libVLC, filePath, LibVLCSharp.Shared.FromType.FromPath);
+                
+                // メディアをパースして長さを取得
+                var parseTask = media.Parse(LibVLCSharp.Shared.MediaParseOptions.ParseLocal);
+                parseTask.Wait(TimeSpan.FromSeconds(5));
+
+                if (media.Duration > 0)
+                {
+                    var durationSeconds = media.Duration / 1000.0;
+                    LogHelper.WriteLog(
+                        "CommandExecutor:GetVideoDurationFromFile",
+                        "Video duration obtained",
+                        new { filePath = filePath, durationMs = media.Duration, durationSeconds = durationSeconds });
+                    return durationSeconds;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "CommandExecutor:GetVideoDurationFromFile",
+                    "Error getting video duration",
+                    new { filePath = filePath, error = ex.Message });
+            }
+
+            return 0.0;
         }
 
         /// <summary>

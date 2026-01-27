@@ -9,6 +9,7 @@ using Reactive.Bindings.Extensions;
 using Wideor.App.Features.Editor;
 using Wideor.App.Features.Player;
 using Wideor.App.Features.Timeline;
+using Wideor.App.Shared.Domain;
 using Wideor.App.Shared.Infra;
 
 namespace Wideor.App.Shell
@@ -142,6 +143,38 @@ namespace Wideor.App.Shell
         /// </summary>
         public ReactiveCommand ShowVersionInfoCommand { get; }
 
+        // --- 編集コマンド（テキストエリアに挿入） ---
+
+        /// <summary>
+        /// 現在の再生位置で分割（CUTコマンド）
+        /// </summary>
+        public ReactiveCommand SplitAtCurrentPositionCommand { get; }
+
+        /// <summary>
+        /// 選択セグメントを非表示（HIDEコマンド）
+        /// </summary>
+        public ReactiveCommand HideSelectedSegmentCommand { get; }
+
+        /// <summary>
+        /// 選択セグメントを表示（SHOWコマンド）
+        /// </summary>
+        public ReactiveCommand ShowSelectedSegmentCommand { get; }
+
+        /// <summary>
+        /// 選択セグメントを削除（DELETEコマンド）
+        /// </summary>
+        public ReactiveCommand DeleteSelectedSegmentCommand { get; }
+
+        /// <summary>
+        /// セパレータを挿入（パラグラフ対応）
+        /// </summary>
+        public ReactiveCommand InsertSeparatorCommand { get; }
+
+        /// <summary>
+        /// 現在の再生位置でセパレータを挿入
+        /// </summary>
+        public ReactiveCommand InsertSeparatorAtCurrentPositionCommand { get; }
+
         public ShellViewModel(
             IProjectContext projectContext,
             IScrollCoordinator scrollCoordinator,
@@ -167,7 +200,14 @@ namespace Wideor.App.Shell
             // 各FeatureのViewModelを初期化
             PlayerViewModel = new PlayerViewModel(videoEngine);
             TimelineViewModel = new TimelineViewModel(scrollCoordinator, timeRulerService, segmentManager, commandExecutor, commandParser, videoEngine);
-            EditorViewModel = new EditorViewModel(projectContext, scrollCoordinator);
+            EditorViewModel = new EditorViewModel(
+                projectContext, 
+                scrollCoordinator,
+                headerParser: null,  // デフォルト実装を使用
+                sceneParser: null,   // デフォルト実装を使用
+                commandParser: commandParser,
+                commandExecutor: commandExecutor,
+                segmentManager: segmentManager);
 
             // リボンコマンドの初期化
             NewProjectCommand = new ReactiveCommand()
@@ -442,28 +482,21 @@ namespace Wideor.App.Shell
 
                             Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                 "ShellViewModel.cs:LoadVideoCommand",
-                                "TotalDuration obtained, executing LOAD command",
+                                "TotalDuration obtained, adding LOAD command to editor",
                                 new { videoFilePath = videoFilePath, totalDuration = totalDuration });
 
-                            // LOADコマンドを実行してVideoSegmentを作成（UIスレッドで実行）
+                            // テキストファースト: テキストエリアにLOADコマンドを追加するだけ
+                            // コマンドの実行はEditorViewModelのProcessTextChangeで行われる
                             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                             {
-                                var loadCommand = new Wideor.App.Shared.Domain.EditCommand
-                                {
-                                    Type = Wideor.App.Shared.Domain.CommandType.Load,
-                                    FilePath = videoFilePath
-                                };
-
-                                _commandExecutor.ExecuteCommand(loadCommand);
-
                                 // EditorのテキストにLOADコマンドを自動追加
                                 AddLoadCommandToEditor(videoFilePath);
                             });
 
                             Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                 "ShellViewModel.cs:LoadVideoCommand",
-                                "LOAD command executed after video loaded, VideoSegment created",
-                                new { videoFilePath = videoFilePath, duration = totalDuration, segmentCount = _segmentManager.Segments.Count });
+                                "LOAD command added to editor (text-first)",
+                                new { videoFilePath = videoFilePath, duration = totalDuration });
                         }
                         catch (Exception ex)
                         {
@@ -584,6 +617,240 @@ namespace Wideor.App.Shell
                 })
                 .AddTo(_disposables);
 
+            // --- 編集コマンドの初期化（テキストエリアに挿入） ---
+            // テキストファースト：カーソル位置のセパレータ（パラグラフ）に対してコマンドを実行
+
+            // カーソル位置のセパレータで分割（CUTコマンド）
+            SplitAtCurrentPositionCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // エディタのカーソル位置からセパレータ時間範囲を取得
+                    var separatorTimeRange = EditorViewModel.CurrentSeparatorTimeRange.Value;
+                    if (!separatorTimeRange.HasValue)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "エディタでパラグラフ（セパレータの下の行）にカーソルを置いてください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    // セパレータの中央位置で分割
+                    var startTime = separatorTimeRange.Value.startTime;
+                    var endTime = separatorTimeRange.Value.endTime;
+                    var splitTime = startTime + ((endTime - startTime) / 2);
+                    var cutCommand = FormatTimeCommand("CUT", splitTime);
+                    AppendCommandToEditor(cutCommand);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:SplitAtCurrentPositionCommand",
+                        "CUT command inserted",
+                        new { startTime = startTime, endTime = endTime, splitTime = splitTime });
+                })
+                .AddTo(_disposables);
+
+            // カーソル位置のセパレータを非表示（HIDEコマンド）
+            HideSelectedSegmentCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // エディタのカーソル位置からセパレータ時間範囲を取得
+                    var separatorTimeRange = EditorViewModel.CurrentSeparatorTimeRange.Value;
+                    if (!separatorTimeRange.HasValue)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "エディタでパラグラフ（セパレータの下の行）にカーソルを置いてください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    var startTime = separatorTimeRange.Value.startTime;
+                    var endTime = separatorTimeRange.Value.endTime;
+                    var hideCommand = FormatRangeCommand("HIDE", startTime, endTime);
+                    AppendCommandToEditor(hideCommand);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:HideSelectedSegmentCommand",
+                        "HIDE command inserted",
+                        new { startTime = startTime, endTime = endTime });
+                })
+                .AddTo(_disposables);
+
+            // カーソル位置のセパレータを表示（SHOWコマンド）
+            ShowSelectedSegmentCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // エディタのカーソル位置からセパレータ時間範囲を取得
+                    var separatorTimeRange = EditorViewModel.CurrentSeparatorTimeRange.Value;
+                    if (!separatorTimeRange.HasValue)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "エディタでパラグラフ（セパレータの下の行）にカーソルを置いてください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    var startTime = separatorTimeRange.Value.startTime;
+                    var endTime = separatorTimeRange.Value.endTime;
+                    var showCommand = FormatRangeCommand("SHOW", startTime, endTime);
+                    AppendCommandToEditor(showCommand);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:ShowSelectedSegmentCommand",
+                        "SHOW command inserted",
+                        new { startTime = startTime, endTime = endTime });
+                })
+                .AddTo(_disposables);
+
+            // カーソル位置のセパレータを削除（DELETEコマンド）
+            DeleteSelectedSegmentCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // エディタのカーソル位置からセパレータ時間範囲を取得
+                    var separatorTimeRange = EditorViewModel.CurrentSeparatorTimeRange.Value;
+                    if (!separatorTimeRange.HasValue)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "エディタでパラグラフ（セパレータの下の行）にカーソルを置いてください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    var startTime = separatorTimeRange.Value.startTime;
+                    var endTime = separatorTimeRange.Value.endTime;
+                    var deleteCommand = FormatRangeCommand("DELETE", startTime, endTime);
+                    AppendCommandToEditor(deleteCommand);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:DeleteSelectedSegmentCommand",
+                        "DELETE command inserted",
+                        new { startTime = startTime, endTime = endTime });
+                })
+                .AddTo(_disposables);
+
+            // カーソル位置のセパレータを複製（パラグラフ対応）
+            InsertSeparatorCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // エディタのカーソル位置からセパレータ時間範囲を取得
+                    var separatorTimeRange = EditorViewModel.CurrentSeparatorTimeRange.Value;
+                    if (!separatorTimeRange.HasValue)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "エディタでパラグラフ（セパレータの下の行）にカーソルを置いてください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    var startTime = separatorTimeRange.Value.startTime;
+                    var endTime = separatorTimeRange.Value.endTime;
+                    var separator = FormatSeparator(startTime, endTime);
+                    AppendCommandToEditor(separator);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:InsertSeparatorCommand",
+                        "Separator inserted",
+                        new { startTime = startTime, endTime = endTime });
+                })
+                .AddTo(_disposables);
+
+            // 現在の再生位置でセパレータを挿入
+            InsertSeparatorAtCurrentPositionCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // 現在の再生位置を取得
+                    var currentPosition = _projectContext.CurrentPlaybackPosition.Value;
+                    
+                    if (currentPosition <= 0)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "動画を再生してから実行してください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    // 現在位置に対応するセグメントを検索
+                    var segments = TimelineViewModel.VideoSegments;
+                    var currentSegment = segments.FirstOrDefault(s => 
+                        s.StartTime <= currentPosition && s.EndTime > currentPosition);
+                    
+                    if (currentSegment == null)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "現在位置に対応するセグメントが見つかりません。",
+                            "エラー",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
+                    }
+
+                    // セグメントの開始位置から現在位置までのセパレータを挿入
+                    var separator = FormatSeparator(currentSegment.StartTime, currentPosition);
+                    AppendCommandToEditor(separator);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:InsertSeparatorAtCurrentPositionCommand",
+                        "Separator inserted at current position",
+                        new { currentPosition = currentPosition, segmentId = currentSegment.Id });
+                })
+                .AddTo(_disposables);
+
+            // --- EditorとTimelineの連携（セパレータ→セグメント選択） ---
+
+            // EditorViewModelのCurrentSeparatorTimeRangeを監視
+            EditorViewModel.CurrentSeparatorTimeRange
+                .Subscribe(timeRange =>
+                {
+                    if (timeRange.HasValue)
+                    {
+                        // 時間範囲に対応するVideoSegmentを検索
+                        var segment = FindSegmentByTimeRange(timeRange.Value.startTime, timeRange.Value.endTime);
+                        
+                        if (segment != null)
+                        {
+                            TimelineViewModel.SelectedSegment.Value = segment;
+                            
+                            LogHelper.WriteLog(
+                                "ShellViewModel.cs:EditorToTimelineLinking",
+                                "Segment selected from separator",
+                                new { 
+                                    segmentId = segment.Id, 
+                                    startTime = timeRange.Value.startTime, 
+                                    endTime = timeRange.Value.endTime 
+                                });
+                        }
+                        else
+                        {
+                            // 対応するセグメントが見つからない場合は選択解除
+                            TimelineViewModel.SelectedSegment.Value = null;
+                            
+                            LogHelper.WriteLog(
+                                "ShellViewModel.cs:EditorToTimelineLinking",
+                                "No segment found for separator",
+                                new { 
+                                    startTime = timeRange.Value.startTime, 
+                                    endTime = timeRange.Value.endTime 
+                                });
+                        }
+                    }
+                    else
+                    {
+                        // セパレータがない場合は選択解除
+                        TimelineViewModel.SelectedSegment.Value = null;
+                    }
+                })
+                .AddTo(_disposables);
+
             // 初期化処理を開始
             _ = InitializeAsync();
         }
@@ -686,6 +953,105 @@ namespace Wideor.App.Shell
             else
             {
                 return $"LOAD {filePath}";
+            }
+        }
+
+        /// <summary>
+        /// 時間コマンド（CUTなど）のテキストをフォーマット
+        /// </summary>
+        private string FormatTimeCommand(string command, double timeSeconds)
+        {
+            var timeSpan = TimeSpan.FromSeconds(timeSeconds);
+            return $"{command} {timeSpan:hh\\:mm\\:ss\\.fff}";
+        }
+
+        /// <summary>
+        /// 範囲コマンド（HIDE, SHOW, DELETEなど）のテキストをフォーマット
+        /// </summary>
+        private string FormatRangeCommand(string command, double startSeconds, double endSeconds)
+        {
+            var startTime = TimeSpan.FromSeconds(startSeconds);
+            var endTime = TimeSpan.FromSeconds(endSeconds);
+            return $"{command} {startTime:hh\\:mm\\:ss\\.fff} {endTime:hh\\:mm\\:ss\\.fff}";
+        }
+
+        /// <summary>
+        /// セパレータ（パラグラフ対応）のテキストをフォーマット
+        /// </summary>
+        private string FormatSeparator(double startSeconds, double endSeconds)
+        {
+            var startTime = TimeSpan.FromSeconds(startSeconds);
+            var endTime = TimeSpan.FromSeconds(endSeconds);
+            return $"--- [{startTime:hh\\:mm\\:ss\\.fff} -> {endTime:hh\\:mm\\:ss\\.fff}] ---";
+        }
+
+        /// <summary>
+        /// エディタにコマンドを追加
+        /// </summary>
+        private void AppendCommandToEditor(string command)
+        {
+            try
+            {
+                var currentText = EditorViewModel.Text.Value ?? string.Empty;
+                
+                // 末尾に改行がない場合は追加
+                if (!currentText.EndsWith("\n") && !string.IsNullOrEmpty(currentText))
+                {
+                    currentText += "\n";
+                }
+                
+                // コマンドを追加
+                var newText = currentText + command + "\n";
+                
+                EditorViewModel.Text.Value = newText;
+                
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:AppendCommandToEditor",
+                    "Command appended to editor",
+                    new { command = command });
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:AppendCommandToEditor",
+                    "Error appending command",
+                    new { command = command, error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// 時間範囲に対応するVideoSegmentを検索
+        /// </summary>
+        private VideoSegment? FindSegmentByTimeRange(double startTime, double endTime)
+        {
+            try
+            {
+                var segments = TimelineViewModel.VideoSegments;
+                if (segments == null || segments.Count == 0)
+                    return null;
+
+                // 完全一致するセグメントを検索
+                const double tolerance = 0.01; // 10ms以内の誤差を許容
+                var exactMatch = segments.FirstOrDefault(s => 
+                    Math.Abs(s.StartTime - startTime) < tolerance && 
+                    Math.Abs(s.EndTime - endTime) < tolerance);
+
+                if (exactMatch != null)
+                    return exactMatch;
+
+                // 完全一致がない場合、範囲が重なるセグメントを検索
+                var overlappingSegment = segments.FirstOrDefault(s =>
+                    s.StartTime < endTime && s.EndTime > startTime);
+
+                return overlappingSegment;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:FindSegmentByTimeRange",
+                    "Error finding segment",
+                    new { startTime = startTime, endTime = endTime, error = ex.Message });
+                return null;
             }
         }
 

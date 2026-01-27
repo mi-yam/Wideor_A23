@@ -21,10 +21,6 @@
                 <ColumnDefinition Width="60" MinWidth="60" MaxWidth="60" />
                 <!-- C2: Film Area (可変、最小260px - 動画の最小サイズに合わせる) -->
                 <ColumnDefinition Width="*" MinWidth="260" />
-                <!-- C3: Link Area (80px固定) - フィルムとテキストの対応関係を表示 -->
-                <ColumnDefinition Width="80" MinWidth="80" MaxWidth="80" />
-                <!-- GridSplitter -->
-                <ColumnDefinition Width="4" />
             </Grid.ColumnDefinitions>
             
             <!-- 背景を設定して余白を黒くする -->
@@ -46,22 +42,6 @@
                                 ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch" />
-
-            <!-- C3: LinkAreaView（右側） - フィルムとテキストの対応関係を表示 -->
-            <local:LinkAreaView x:Name="LinkAreaView"
-                               Grid.Column="2"
-                               ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
-                               VerticalAlignment="Stretch" />
-
-            <!-- GridSplitterでリサイズ可能にする -->
-            <GridSplitter Grid.Column="3"
-                         HorizontalAlignment="Stretch"
-                         VerticalAlignment="Stretch"
-                         Background="#444444"
-                         ResizeDirection="Columns"
-                         ShowsPreview="False"
-                         Panel.ZIndex="5"
-                         Cursor="SizeWE" />
 
             <!-- Playhead（赤いインジケータ） -->
             <Border Grid.Column="1"

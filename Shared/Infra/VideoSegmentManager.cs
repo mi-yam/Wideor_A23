@@ -13,6 +13,7 @@ namespace Wideor.App.Shared.Infra
         public event EventHandler<VideoSegmentEventArgs>? SegmentAdded;
         public event EventHandler<VideoSegmentEventArgs>? SegmentRemoved;
         public event EventHandler<VideoSegmentEventArgs>? SegmentUpdated;
+        public event EventHandler? SegmentsCleared;
 
         public IReadOnlyList<VideoSegment> Segments => _segments.AsReadOnly();
 
@@ -71,8 +72,19 @@ namespace Wideor.App.Shared.Infra
 
         public void Clear()
         {
+            var hadSegments = _segments.Count > 0;
             _segments.Clear();
             _nextId = 1;
+
+            if (hadSegments)
+            {
+                LogHelper.WriteLog(
+                    "VideoSegmentManager.cs:Clear",
+                    "All segments cleared",
+                    new { });
+
+                SegmentsCleared?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 }

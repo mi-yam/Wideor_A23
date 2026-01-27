@@ -71,7 +71,6 @@ namespace Wideor.App.Features.Editor
                 view.SubscribeToScrollCoordinator();
                 // ViewModelが変更されたらTextEditorの購読も再設定
                 view.SubscribeToTextEditor();
-                view.SetupAnchorButton();
 
                 LogHelper.WriteLog(
                     "EditorView:OnViewModelChanged",
@@ -89,7 +88,6 @@ namespace Wideor.App.Features.Editor
             SubscribeToScrollCoordinator();
             SubscribeToTextEditor();
             SetupTextEditorSelectionColors();
-            SetupAnchorButton();
             SetupEnterKeyHandler();
 
             LogHelper.WriteLog(
@@ -169,51 +167,6 @@ namespace Wideor.App.Features.Editor
         }
 
         /// <summary>
-        /// AnchorButtonを動的に作成して配置
-        /// </summary>
-        private void SetupAnchorButton()
-        {
-            if (ViewModel == null || AnchorButtonCanvas == null)
-                return;
-
-            var anchorButton = new AnchorButton
-            {
-                Width = 40,
-                Height = 40
-            };
-
-            // バインディングを設定
-            var isPendingBinding = new System.Windows.Data.Binding("IsAnchorPending.Value")
-            {
-                Source = ViewModel
-            };
-            anchorButton.SetBinding(AnchorButton.IsPendingProperty, isPendingBinding);
-
-            var isConfirmedBinding = new System.Windows.Data.Binding("IsAnchorConfirmed.Value")
-            {
-                Source = ViewModel
-            };
-            anchorButton.SetBinding(AnchorButton.IsConfirmedProperty, isConfirmedBinding);
-
-            var clickCommandBinding = new System.Windows.Data.Binding("AnchorClickCommand")
-            {
-                Source = ViewModel
-            };
-            anchorButton.SetBinding(AnchorButton.ClickCommandProperty, clickCommandBinding);
-
-            var toolTipBinding = new System.Windows.Data.Binding("AnchorToolTip.Value")
-            {
-                Source = ViewModel
-            };
-            anchorButton.SetBinding(AnchorButton.ToolTipTextProperty, toolTipBinding);
-
-            // Canvasに配置
-            Canvas.SetLeft(anchorButton, 8);
-            Canvas.SetTop(anchorButton, 8);
-            AnchorButtonCanvas.Children.Add(anchorButton);
-        }
-
-        /// <summary>
         /// TextEditorの選択色を設定（TextAreaのプロパティを使用）
         /// </summary>
         private void SetupTextEditorSelectionColors()
@@ -279,6 +232,9 @@ namespace Wideor.App.Features.Editor
                 _textChangedHandlerRegistered = true;
             }
 
+            // カーソル位置変更イベントハンドラを登録
+            TextEditorControl.TextArea.Caret.PositionChanged += OnCaretPositionChanged;
+
             // ViewModelのTextが変更されたらTextEditorを更新（外部からの変更時）
             ViewModel.Text
                 .Subscribe(text =>
@@ -332,6 +288,34 @@ namespace Wideor.App.Features.Editor
                 "EditorView:SubscribeToTextEditor",
                 "Subscription completed",
                 new { hasViewModel = ViewModel != null, hasTextEditor = TextEditorControl != null });
+        }
+
+        /// <summary>
+        /// カーソル位置変更時にViewModelのCaretPositionを更新
+        /// </summary>
+        private void OnCaretPositionChanged(object? sender, EventArgs e)
+        {
+            if (ViewModel == null || TextEditorControl == null)
+                return;
+
+            try
+            {
+                var caretOffset = TextEditorControl.CaretOffset;
+                ViewModel.CaretPosition.Value = caretOffset;
+
+                // ログは頻繁に出力されるので、必要時のみ有効化
+                // LogHelper.WriteLog(
+                //     "EditorView:OnCaretPositionChanged",
+                //     "Caret position updated",
+                //     new { caretOffset = caretOffset });
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "EditorView:OnCaretPositionChanged",
+                    "Error updating caret position",
+                    new { error = ex.Message });
+            }
         }
 
         private void EnsureViewModelAssigned()

@@ -4,9 +4,11 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using LibVLCSharp.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using Reactive.Bindings.Extensions;
 using Wideor.App.Shared.Domain;
 using Wideor.App.Shared.Infra;
 
@@ -32,6 +34,9 @@ namespace Wideor.App.Features.Timeline
         private bool _isDraggingSlider = false;
         private double _totalDuration = 0;
         private bool _isDisposed = false;
+        private long? _pendingSeekTimeMs = null;  // 再生開始後にシークする位置（ミリ秒）
+        private int _cachedSegmentId = -1;  // ネイティブスレッドからアクセス用のセグメントIDキャッシュ
+        private double _cachedSegmentEndTime = double.MaxValue;  // ネイティブスレッドからアクセス用のセグメント終了時間キャッシュ
 
         public VideoSegment Segment
         {
@@ -285,6 +290,12 @@ namespace Wideor.App.Features.Timeline
                     clipHeight = ClipHeight
                 });
             
+            // _disposablesを初期化（未初期化の場合）
+            if (_disposables == null)
+            {
+                _disposables = new CompositeDisposable();
+            }
+            
             // ClipHeightが設定されていない場合、デフォルト値を設定
             if (ClipHeight <= 0)
             {
@@ -292,6 +303,64 @@ namespace Wideor.App.Features.Timeline
             }
             
             UpdateView();
+            
+            // TimelineViewModelのSelectedSegmentを監視して選択状態を表示
+            SubscribeToSelectedSegment();
+        }
+
+        /// <summary>
+        /// TimelineViewModelのSelectedSegmentを監視して選択状態を表示
+        /// </summary>
+        private void SubscribeToSelectedSegment()
+        {
+            // _disposablesが初期化されていることを確認
+            if (_disposables == null)
+            {
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:SubscribeToSelectedSegment",
+                    "_disposables is null, cannot subscribe",
+                    new { segmentId = Segment?.Id ?? -1 });
+                return;
+            }
+
+            try
+            {
+                // 親を辿ってTimelinePageを見つけ、そこからTimelineViewModelを取得
+                var parent = VisualTreeHelper.GetParent(this);
+                while (parent != null)
+                {
+                    if (parent is FrameworkElement fe && fe.DataContext is TimelineViewModel timelineViewModel)
+                    {
+                        // SelectedSegmentを監視
+                        timelineViewModel.SelectedSegment
+                            .Subscribe(selectedSegment =>
+                            {
+                                // このセグメントが選択されているかチェック
+                                var isSelected = selectedSegment != null && 
+                                               Segment != null && 
+                                               selectedSegment.Id == Segment.Id;
+                                
+                                // UIスレッドで選択状態を更新
+                                Dispatcher.InvokeAsync(() => UpdateSelectionVisual(isSelected));
+                            })
+                            .AddTo(_disposables);
+                        
+                        LogHelper.WriteLog(
+                            "VideoSegmentView.xaml.cs:SubscribeToSelectedSegment",
+                            "Subscribed to SelectedSegment",
+                            new { segmentId = Segment?.Id ?? -1 });
+                        break;
+                    }
+                    parent = VisualTreeHelper.GetParent(parent);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:SubscribeToSelectedSegment",
+                    "Error subscribing to SelectedSegment",
+                    new { segmentId = Segment?.Id ?? -1, error = ex.Message });
+            }
         }
 
         private void VideoSegmentView_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -411,11 +480,19 @@ namespace Wideor.App.Features.Timeline
                     return;
                 }
 
-                // 動画の最初のフレーム（0秒位置）のサムネイルを生成
+                // セグメントの開始位置のサムネイルを生成
                 // ThumbnailProvider内でFreeze()が呼び出されるため、返されるBitmapSourceは既にスレッドセーフ
+                // 分割されたセグメントの場合、StartTimeが0より大きいので、その位置のサムネイルを生成
+                var thumbnailPosition = Segment.StartTime;
+                
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:LoadThumbnailAsync",
+                    "Generating thumbnail at segment start time",
+                    new { segmentId = Segment.Id, thumbnailPosition = thumbnailPosition });
+                
                 var thumbnail = await thumbnailProvider.GenerateThumbnailAsync(
                     Segment.VideoFilePath,
-                    timePosition: 0.0, // 最初のフレーム
+                    timePosition: thumbnailPosition, // セグメントの開始位置
                     width: 320,
                     height: 180,
                     cancellationToken: default).ConfigureAwait(false);
@@ -519,6 +596,10 @@ namespace Wideor.App.Features.Timeline
             if (Segment == null || string.IsNullOrEmpty(Segment.VideoFilePath))
                 return false;
 
+            // ネイティブスレッドからアクセスするためにセグメント情報をキャッシュ
+            _cachedSegmentId = Segment.Id;
+            _cachedSegmentEndTime = Segment.EndTime;
+
             try
             {
                 // LibVLCがまだ作成されていない場合は作成
@@ -570,8 +651,29 @@ namespace Wideor.App.Features.Timeline
                 _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
                 SetupMediaPlayerEvents();
 
-                // 動画をロード
+                // 動画をロード（セグメントの開始/終了位置をメディアオプションで指定）
                 var media = new Media(_libVLC, Segment.VideoFilePath, FromType.FromPath);
+                
+                // :start-time オプションでセグメントの開始位置を指定（秒単位）
+                if (Segment.StartTime > 0)
+                {
+                    media.AddOption($":start-time={Segment.StartTime:F3}");
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:InitializeAndLoadAsync",
+                        "Added start-time option",
+                        new { segmentId = Segment.Id, startTime = Segment.StartTime });
+                }
+                
+                // :stop-time オプションでセグメントの終了位置を指定（秒単位）
+                if (Segment.EndTime > 0 && Segment.EndTime < double.MaxValue)
+                {
+                    media.AddOption($":stop-time={Segment.EndTime:F3}");
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:InitializeAndLoadAsync",
+                        "Added stop-time option",
+                        new { segmentId = Segment.Id, endTime = Segment.EndTime });
+                }
+                
                 _mediaPlayer.Media = media;
 
                 // VideoViewにMediaPlayerを設定
@@ -640,6 +742,23 @@ namespace Wideor.App.Features.Timeline
 
         private void MediaPlayer_Playing(object? sender, EventArgs e)
         {
+            // 再生開始後にシークが必要な場合はシークを実行
+            // 注意: このイベントはネイティブスレッドから呼び出されるため、
+            // DependencyProperty (Segment) に直接アクセスしない
+            if (_pendingSeekTimeMs.HasValue && _mediaPlayer != null)
+            {
+                var seekTime = _pendingSeekTimeMs.Value;
+                _pendingSeekTimeMs = null;  // リセット
+                
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:MediaPlayer_Playing",
+                    "Seeking to pending position after play started",
+                    new { seekTimeMs = seekTime, segmentId = _cachedSegmentId });
+                
+                // シークを実行（イベントハンドラ内でも安全）
+                _mediaPlayer.Time = seekTime;
+            }
+            
             Dispatcher.InvokeAsync(() =>
             {
                 _isPlaying = true;
@@ -719,9 +838,20 @@ namespace Wideor.App.Features.Timeline
         {
             Dispatcher.InvokeAsync(() =>
             {
+                // 元動画の全体長を保持（シーク計算用）
                 _totalDuration = e.Length / 1000.0;
-                TotalTimeText.Text = FormatTime(_totalDuration);
-                PlaceholderDurationText.Text = FormatTime(_totalDuration);
+                
+                // 表示はセグメントのDurationを使用
+                if (Segment != null)
+                {
+                    TotalTimeText.Text = FormatTime(Segment.Duration);
+                    PlaceholderDurationText.Text = FormatTime(Segment.Duration);
+                }
+                else
+                {
+                    TotalTimeText.Text = FormatTime(_totalDuration);
+                    PlaceholderDurationText.Text = FormatTime(_totalDuration);
+                }
             });
         }
 
@@ -729,12 +859,44 @@ namespace Wideor.App.Features.Timeline
         {
             Dispatcher.InvokeAsync(() =>
             {
-                if (!_isDraggingSlider && _totalDuration > 0)
+                if (Segment == null) return;
+
+                var currentTime = e.Time / 1000.0;
+                
+                // セグメントの終了位置を超えたら停止
+                if (currentTime >= Segment.EndTime)
                 {
-                    var currentTime = e.Time / 1000.0;
-                    var progress = (currentTime / _totalDuration) * 100;
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:MediaPlayer_TimeChanged",
+                        "Reached segment end, stopping playback",
+                        new { segmentId = Segment.Id, currentTime = currentTime, endTime = Segment.EndTime });
+                    
+                    // 終了処理を遅延実行（イベントハンドラ内での直接操作を避ける）
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(10);
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            lock (_playbackLock)
+                            {
+                                if (_currentlyPlayingView == this)
+                                {
+                                    _currentlyPlayingView = null;
+                                }
+                            }
+                            StopAndCleanupSafe();
+                        });
+                    });
+                    return;
+                }
+
+                // セグメント内での相対位置を計算
+                if (!_isDraggingSlider && Segment.Duration > 0)
+                {
+                    var segmentRelativeTime = currentTime - Segment.StartTime;
+                    var progress = (segmentRelativeTime / Segment.Duration) * 100;
                     ProgressSlider.Value = Math.Min(100, Math.Max(0, progress));
-                    CurrentTimeText.Text = FormatTime(currentTime);
+                    CurrentTimeText.Text = FormatTime(segmentRelativeTime);
                 }
             });
         }
@@ -758,6 +920,7 @@ namespace Wideor.App.Features.Timeline
             var playerToDispose = _mediaPlayer;
             _mediaPlayer = null;
             _isPlaying = false;
+            _pendingSeekTimeMs = null;  // ペンディングシークをクリア
 
             if (playerToDispose != null)
             {
@@ -827,6 +990,7 @@ namespace Wideor.App.Features.Timeline
             var playerToDispose = _mediaPlayer;
             _mediaPlayer = null;
             _isPlaying = false;
+            _pendingSeekTimeMs = null;  // ペンディングシークをクリア
 
             if (playerToDispose != null)
             {
@@ -879,6 +1043,23 @@ namespace Wideor.App.Features.Timeline
         }
 
         // --- イベントハンドラ ---
+
+        /// <summary>
+        /// 選択状態を視覚的に表示
+        /// </summary>
+        private void UpdateSelectionVisual(bool isSelected)
+        {
+            if (isSelected)
+            {
+                MainBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 122, 204));  // 青いハイライト
+                MainBorder.BorderThickness = new Thickness(3);
+            }
+            else
+            {
+                MainBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(51, 51, 51));  // #333333
+                MainBorder.BorderThickness = new Thickness(1);
+            }
+        }
 
         private async void OnPlayPauseClicked(object sender, RoutedEventArgs e)
         {
@@ -952,25 +1133,42 @@ namespace Wideor.App.Features.Timeline
                     }
                 }
                 
-                // MediaPlayerがない場合は初期化
-                if (_mediaPlayer == null)
+                // 毎回新しいMediaPlayerとMediaを作成する
+                // :start-time オプションは新しいMediaにしか適用されないため
+                // 既存のMediaPlayerがある場合は先にクリーンアップ
+                if (_mediaPlayer != null)
                 {
-                    var initialized = await InitializeAndLoadAsync();
-                    if (!initialized)
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:OnPlayPauseClicked",
+                        "Cleaning up existing MediaPlayer before reinitializing",
+                        new { segmentId = Segment.Id });
+                    
+                    StopAndCleanup();
+                }
+                
+                var initialized = await InitializeAndLoadAsync();
+                if (!initialized)
+                {
+                    lock (_playbackLock)
                     {
-                        lock (_playbackLock)
+                        if (_currentlyPlayingView == this)
                         {
-                            if (_currentlyPlayingView == this)
-                            {
-                                _currentlyPlayingView = null;
-                            }
+                            _currentlyPlayingView = null;
                         }
-                        return;
                     }
+                    return;
                 }
 
-                // 最初から再生開始
-                _mediaPlayer?.Play();
+                // 再生開始（:start-time オプションにより正しい位置から開始される）
+                if (_mediaPlayer != null)
+                {
+                    LogHelper.WriteLog(
+                        "VideoSegmentView.xaml.cs:OnPlayPauseClicked",
+                        "Starting playback with start-time option",
+                        new { segmentId = Segment.Id, startTime = Segment.StartTime, endTime = Segment.EndTime });
+                    
+                    _mediaPlayer.Play();
+                }
             }
         }
 
@@ -1006,19 +1204,27 @@ namespace Wideor.App.Features.Timeline
         {
             _isDraggingSlider = false;
             
-            if (_mediaPlayer != null && _totalDuration > 0)
+            if (_mediaPlayer != null && Segment != null && Segment.Duration > 0)
             {
-                var seekPosition = (ProgressSlider.Value / 100.0) * _totalDuration;
-                _mediaPlayer.Time = (long)(seekPosition * 1000);
+                // スライダー位置からセグメント内の相対位置を計算し、元動画内の絶対位置に変換
+                var relativePosition = (ProgressSlider.Value / 100.0) * Segment.Duration;
+                var absolutePosition = Segment.StartTime + relativePosition;
+                _mediaPlayer.Time = (long)(absolutePosition * 1000);
+                
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:OnProgressSliderMouseUp",
+                    "Seeking within segment",
+                    new { segmentId = Segment.Id, sliderValue = ProgressSlider.Value, relativePosition = relativePosition, absolutePosition = absolutePosition });
             }
         }
 
         private void OnProgressSliderValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (_isDraggingSlider && _totalDuration > 0)
+            if (_isDraggingSlider && Segment != null && Segment.Duration > 0)
             {
-                var currentTime = (e.NewValue / 100.0) * _totalDuration;
-                CurrentTimeText.Text = FormatTime(currentTime);
+                // スライダー位置からセグメント内の相対時間を計算
+                var relativeTime = (e.NewValue / 100.0) * Segment.Duration;
+                CurrentTimeText.Text = FormatTime(relativeTime);
             }
         }
 

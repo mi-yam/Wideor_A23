@@ -72,6 +72,18 @@ namespace Wideor.App.Features.Editor
         public IReadOnlyReactiveProperty<IReadOnlyList<SceneBlock>> SceneBlocks { get; }
 
         /// <summary>
+        /// エディタのカーソル位置（文字オフセット）
+        /// </summary>
+        public ReactiveProperty<int> CaretPosition { get; }
+
+        /// <summary>
+        /// カーソル位置に対応するセパレータの時間範囲
+        /// </summary>
+        public IReadOnlyReactiveProperty<(double startTime, double endTime)?> CurrentSeparatorTimeRange { get; }
+
+        private readonly ReactiveProperty<(double startTime, double endTime)?> _currentSeparatorTimeRange;
+
+        /// <summary>
         /// ScrollCoordinator（ViewからScrollViewerを登録するために公開）
         /// </summary>
         public IScrollCoordinator ScrollCoordinator => _scrollCoordinator;
@@ -124,6 +136,27 @@ namespace Wideor.App.Features.Editor
             SceneBlocks = _projectContext.SceneBlocks
                 .Select(blocks => blocks != null ? (IReadOnlyList<SceneBlock>)blocks.ToList() : Array.Empty<SceneBlock>())
                 .ToReadOnlyReactiveProperty<IReadOnlyList<SceneBlock>>(Array.Empty<SceneBlock>())
+                .AddTo(_disposables);
+
+            // カーソル位置の初期化
+            CaretPosition = new ReactiveProperty<int>(0)
+                .AddTo(_disposables);
+
+            // カーソル位置に対応するセパレータ時間範囲の初期化
+            _currentSeparatorTimeRange = new ReactiveProperty<(double startTime, double endTime)?>(default((double, double)?))
+                .AddTo(_disposables);
+            
+            CurrentSeparatorTimeRange = _currentSeparatorTimeRange
+                .ToReadOnlyReactiveProperty<(double startTime, double endTime)?>(default((double, double)?))
+                .AddTo(_disposables);
+
+            // カーソル位置またはテキストが変更されたらセパレータを解析
+            Observable.CombineLatest(
+                CaretPosition,
+                Text,
+                (caret, text) => (caret, text))
+                .Throttle(TimeSpan.FromMilliseconds(100)) // デバウンス
+                .Subscribe(x => UpdateCurrentSeparator(x.caret, x.text))
                 .AddTo(_disposables);
 
             IsAnchorPending = _anchorLogic.IsRecording
@@ -383,6 +416,89 @@ namespace Wideor.App.Features.Editor
             else
             {
                 return $"{timeSpan.Minutes:D2}:{timeSpan.Seconds:D2}";
+            }
+        }
+
+        /// <summary>
+        /// カーソル位置からセパレータブロックを解析して時間範囲を取得
+        /// </summary>
+        private void UpdateCurrentSeparator(int caretPosition, string text)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(text) || caretPosition < 0 || caretPosition > text.Length)
+                {
+                    _currentSeparatorTimeRange.Value = null;
+                    return;
+                }
+
+                // セパレータの正規表現パターン
+                // 形式: --- [00:00:00.000 -> 00:00:10.000] ---
+                var separatorPattern = @"^[-]{3,}\s*\[(?<start>\d{2}:\d{2}:\d{2}\.\d{3})\s*->\s*(?<end>\d{2}:\d{2}:\d{2}\.\d{3})\]\s*[-]{3,}$";
+                var regex = new System.Text.RegularExpressions.Regex(separatorPattern, System.Text.RegularExpressions.RegexOptions.Multiline);
+
+                // テキストを行に分割
+                var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                
+                // カーソル位置が何行目かを特定
+                int currentLineIndex = 0;
+                int charCount = 0;
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (charCount + lines[i].Length >= caretPosition)
+                    {
+                        currentLineIndex = i;
+                        break;
+                    }
+                    // 改行文字分を加算（Windows: \r\n = 2, Unix: \n = 1）
+                    charCount += lines[i].Length + (text.Contains("\r\n") ? 2 : 1);
+                }
+
+                // カーソル行から上方向にセパレータを探す
+                (double startTime, double endTime)? foundRange = null;
+                for (int i = currentLineIndex; i >= 0; i--)
+                {
+                    var match = regex.Match(lines[i]);
+                    if (match.Success)
+                    {
+                        var startTimeStr = match.Groups["start"].Value;
+                        var endTimeStr = match.Groups["end"].Value;
+                        
+                        if (TimeSpan.TryParseExact(startTimeStr, @"hh\:mm\:ss\.fff", null, out var startTs) &&
+                            TimeSpan.TryParseExact(endTimeStr, @"hh\:mm\:ss\.fff", null, out var endTs))
+                        {
+                            foundRange = (startTs.TotalSeconds, endTs.TotalSeconds);
+                            
+                            LogHelper.WriteLog(
+                                "EditorViewModel.cs:UpdateCurrentSeparator",
+                                "Found separator for cursor position",
+                                new { 
+                                    caretPosition = caretPosition, 
+                                    lineIndex = i, 
+                                    startTime = startTs.TotalSeconds, 
+                                    endTime = endTs.TotalSeconds 
+                                });
+                            break;
+                        }
+                    }
+                    
+                    // 空行や他のセパレータ（時間なし）を見つけたら、それより上のセパレータは対象外
+                    if (string.IsNullOrWhiteSpace(lines[i]) && i < currentLineIndex)
+                    {
+                        // 空行はスキップ
+                        continue;
+                    }
+                }
+
+                _currentSeparatorTimeRange.Value = foundRange;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "EditorViewModel.cs:UpdateCurrentSeparator",
+                    "Error parsing separator",
+                    new { caretPosition = caretPosition, error = ex.Message });
+                _currentSeparatorTimeRange.Value = null;
             }
         }
 

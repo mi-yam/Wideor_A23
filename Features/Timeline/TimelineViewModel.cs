@@ -76,6 +76,16 @@ namespace Wideor.App.Features.Timeline
         public ReactiveProperty<VideoSegment?> CurrentPlayingSegment { get; }
 
         /// <summary>
+        /// 現在選択されているセグメント（編集操作の対象）
+        /// </summary>
+        public ReactiveProperty<VideoSegment?> SelectedSegment { get; }
+
+        /// <summary>
+        /// セグメントを選択するコマンド
+        /// </summary>
+        public ReactiveCommand<VideoSegment> SelectSegmentCommand { get; }
+
+        /// <summary>
         /// MediaPlayer（VideoSegmentViewで使用）
         /// </summary>
         public LibVLCSharp.Shared.MediaPlayer? MediaPlayer
@@ -170,6 +180,22 @@ namespace Wideor.App.Features.Timeline
 
             // 現在再生中のセグメント
             CurrentPlayingSegment = new ReactiveProperty<VideoSegment?>()
+                .AddTo(_disposables);
+
+            // 選択されているセグメント
+            SelectedSegment = new ReactiveProperty<VideoSegment?>()
+                .AddTo(_disposables);
+
+            // セグメント選択コマンド
+            SelectSegmentCommand = new ReactiveCommand<VideoSegment>()
+                .WithSubscribe(segment =>
+                {
+                    SelectedSegment.Value = segment;
+                    LogHelper.WriteLog(
+                        "TimelineViewModel.cs:SelectSegmentCommand",
+                        "Segment selected",
+                        new { segmentId = segment?.Id ?? -1, startTime = segment?.StartTime ?? 0, endTime = segment?.EndTime ?? 0 });
+                })
                 .AddTo(_disposables);
 
             // 動画の読み込み状態
@@ -395,11 +421,45 @@ namespace Wideor.App.Features.Timeline
             _segmentManager.SegmentAdded += OnSegmentAdded;
             _segmentManager.SegmentRemoved += OnSegmentRemoved;
             _segmentManager.SegmentUpdated += OnSegmentUpdated;
+            _segmentManager.SegmentsCleared += OnSegmentsCleared;
 
             // 既存のセグメントを初期化
             foreach (var segment in _segmentManager.Segments)
             {
                 _videoSegments.Add(segment);
+            }
+        }
+
+        /// <summary>
+        /// 全セグメントクリアイベントハンドラ
+        /// </summary>
+        private void OnSegmentsCleared(object? sender, EventArgs e)
+        {
+            Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                "TimelineViewModel.cs:OnSegmentsCleared",
+                "Segments cleared event received",
+                new { previousCount = _videoSegments.Count });
+
+            if (System.Windows.Application.Current.Dispatcher.CheckAccess())
+            {
+                _videoSegments.Clear();
+
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "TimelineViewModel.cs:OnSegmentsCleared",
+                    "Segments collection cleared (UI thread)",
+                    new { newCount = _videoSegments.Count });
+            }
+            else
+            {
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    _videoSegments.Clear();
+
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "TimelineViewModel.cs:OnSegmentsCleared",
+                        "Segments collection cleared (dispatched)",
+                        new { newCount = _videoSegments.Count });
+                });
             }
         }
 
@@ -883,6 +943,7 @@ namespace Wideor.App.Features.Timeline
             _segmentManager.SegmentAdded -= OnSegmentAdded;
             _segmentManager.SegmentRemoved -= OnSegmentRemoved;
             _segmentManager.SegmentUpdated -= OnSegmentUpdated;
+            _segmentManager.SegmentsCleared -= OnSegmentsCleared;
 
             _disposables?.Dispose();
         }

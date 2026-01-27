@@ -9,6 +9,7 @@ namespace Wideor.App.Shared.Infra
         event EventHandler<VideoSegmentEventArgs>? SegmentAdded;
         event EventHandler<VideoSegmentEventArgs>? SegmentRemoved;
         event EventHandler<VideoSegmentEventArgs>? SegmentUpdated;
+        event EventHandler? SegmentsCleared;
         
         IReadOnlyList<VideoSegment> Segments { get; }
         VideoSegment? GetSegmentById(int id);

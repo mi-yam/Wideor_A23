@@ -21,8 +21,5 @@
                           Background="#111111"
                           Foreground="#E0E0E0"
                           LineNumbersForeground="#888888" />
-
-        <!-- 左端にAnchorButtonをオーバーレイ配置 -->
-        <Canvas x:Name="AnchorButtonCanvas" />
     </Grid>
 </UserControl>

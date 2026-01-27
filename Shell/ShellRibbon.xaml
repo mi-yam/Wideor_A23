@@ -63,8 +63,34 @@
                 </StackPanel>
             </fluent:RibbonGroupBox>
 
-            <!-- クリップグループ -->
-            <fluent:RibbonGroupBox Header="クリップ">
+            <!-- 動画編集コマンドグループ -->
+            <fluent:RibbonGroupBox Header="動画編集">
+                <fluent:Button Header="分割"
+                             Command="{Binding SplitAtCurrentPositionCommand}"
+                             ToolTip="カーソル位置のパラグラフを中央で分割 (CUT コマンドを挿入)&#x0a;&#x0a;使い方: エディタでパラグラフにカーソルを置いてクリック&#x0a;または: エディタに直接 'CUT 00:01:23.456' と記述" />
+                <fluent:Button Header="非表示"
+                             Command="{Binding HideSelectedSegmentCommand}"
+                             ToolTip="カーソル位置のパラグラフを非表示 (HIDE コマンドを挿入)&#x0a;&#x0a;使い方: エディタでパラグラフにカーソルを置いてクリック&#x0a;または: エディタに直接 'HIDE 開始時間 終了時間' と記述" />
+                <fluent:Button Header="表示"
+                             Command="{Binding ShowSelectedSegmentCommand}"
+                             ToolTip="カーソル位置のパラグラフを表示 (SHOW コマンドを挿入)&#x0a;&#x0a;使い方: エディタでパラグラフにカーソルを置いてクリック&#x0a;または: エディタに直接 'SHOW 開始時間 終了時間' と記述" />
+                <fluent:Button Header="削除"
+                             Command="{Binding DeleteSelectedSegmentCommand}"
+                             ToolTip="カーソル位置のパラグラフを削除 (DELETE コマンドを挿入)&#x0a;&#x0a;使い方: エディタでパラグラフにカーソルを置いてクリック&#x0a;または: エディタに直接 'DELETE 開始時間 終了時間' と記述" />
+            </fluent:RibbonGroupBox>
+
+            <!-- パラグラフグループ -->
+            <fluent:RibbonGroupBox Header="パラグラフ">
+                <fluent:Button Header="セパレータ挿入"
+                             Command="{Binding InsertSeparatorCommand}"
+                             ToolTip="カーソル位置のパラグラフのセパレータを複製&#x0a;&#x0a;使い方: エディタでパラグラフにカーソルを置いてクリック&#x0a;または: エディタに直接 '--- [開始 -> 終了] ---' と記述" />
+                <fluent:Button Header="現在位置で挿入"
+                             Command="{Binding InsertSeparatorAtCurrentPositionCommand}"
+                             ToolTip="現在の再生位置でセパレータを挿入&#x0a;&#x0a;使い方: 動画を再生中にクリック" />
+            </fluent:RibbonGroupBox>
+
+            <!-- クリップボードグループ -->
+            <fluent:RibbonGroupBox Header="クリップボード">
                 <StackPanel Orientation="Horizontal">
                     <fluent:Button Header="切り取り"
                                  Command="{Binding CutCommand}"
