@@ -310,6 +310,12 @@ namespace Wideor.App.Features.Editor
                     _projectContext.AddSceneBlock(scene);
                 }
 
+                // ステップ5: SceneBlockとVideoSegmentを紐付け（テロップ情報の同期）
+                if (_segmentManager != null)
+                {
+                    ApplySceneBlocksToSegments(scenes);
+                }
+
                 LogHelper.WriteLog(
                     "EditorViewModel:ProcessTextChange",
                     "Parse completed",
@@ -327,6 +333,67 @@ namespace Wideor.App.Features.Editor
             finally
             {
                 _isParsing = false;
+            }
+        }
+
+        /// <summary>
+        /// SceneBlockの情報をVideoSegmentに適用する（テロップ情報の同期）
+        /// </summary>
+        /// <param name="scenes">シーンブロックのリスト</param>
+        private void ApplySceneBlocksToSegments(List<SceneBlock> scenes)
+        {
+            try
+            {
+                var segments = _segmentManager.Segments.ToList();
+                
+                foreach (var scene in scenes)
+                {
+                    // 時間範囲が重なるセグメントを検索（許容誤差0.1秒）
+                    const double tolerance = 0.1;
+                    var matchingSegment = segments.FirstOrDefault(s =>
+                        s.StartTime - tolerance <= scene.StartTime && s.EndTime + tolerance >= scene.EndTime);
+
+                    // 完全一致がない場合は、時間範囲が最も重なるセグメントを検索
+                    if (matchingSegment == null)
+                    {
+                        matchingSegment = segments.FirstOrDefault(s =>
+                            s.StartTime < scene.EndTime && s.EndTime > scene.StartTime);
+                    }
+
+                    if (matchingSegment != null)
+                    {
+                        // タイトル、字幕、自由テキストを適用
+                        matchingSegment.Title = scene.Title;
+                        matchingSegment.Subtitle = scene.Subtitle;
+                        matchingSegment.FreeTextItems = scene.FreeTextItems ?? new List<FreeTextItem>();
+
+                        // セグメントを更新
+                        _segmentManager.UpdateSegment(matchingSegment);
+
+                        LogHelper.WriteLog(
+                            "EditorViewModel:ApplySceneBlocksToSegments",
+                            "SceneBlock applied to segment",
+                            new { 
+                                segmentId = matchingSegment.Id, 
+                                sceneId = scene.Id,
+                                title = scene.Title,
+                                subtitle = scene.Subtitle,
+                                freeTextCount = scene.FreeTextItems?.Count ?? 0
+                            });
+                    }
+                }
+
+                LogHelper.WriteLog(
+                    "EditorViewModel:ApplySceneBlocksToSegments",
+                    "Completed applying scene blocks",
+                    new { sceneCount = scenes.Count, segmentCount = segments.Count });
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "EditorViewModel:ApplySceneBlocksToSegments",
+                    "Error applying scene blocks",
+                    new { exceptionType = ex.GetType().Name, message = ex.Message });
             }
         }
 

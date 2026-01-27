@@ -44,6 +44,31 @@ namespace Wideor.App.Shared.Infra
             @"^\s*DEFAULT_BACKGROUND_ALPHA\s+(0?\.\d+|1\.0|0|1)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // テロップ位置設定のパターン
+        private static readonly Regex TitlePositionXPattern = new Regex(
+            @"^\s*TITLE_POSITION_X\s+(0?\.\d+|1\.0|0|1)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex TitlePositionYPattern = new Regex(
+            @"^\s*TITLE_POSITION_Y\s+(0?\.\d+|1\.0|0|1)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex SubtitlePositionYPattern = new Regex(
+            @"^\s*SUBTITLE_POSITION_Y\s+(0?\.\d+|1\.0|0|1)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex TitleFontSizePattern = new Regex(
+            @"^\s*TITLE_FONT_SIZE\s+(\d+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex SubtitleFontSizePattern = new Regex(
+            @"^\s*SUBTITLE_FONT_SIZE\s+(\d+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex DefaultFreeTextColorPattern = new Regex(
+            @"^\s*DEFAULT_FREETEXT_COLOR\s+#([0-9A-Fa-f]{6})$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         // Header と Body の区切り（=== で3つ以上）
         private static readonly Regex SeparatorPattern = new Regex(
             @"^={3,}$",
@@ -188,6 +213,69 @@ namespace Wideor.App.Shared.Infra
                 }
                 return;
             }
+
+            // TITLE_POSITION_X コマンド
+            var titlePositionXMatch = TitlePositionXPattern.Match(line);
+            if (titlePositionXMatch.Success)
+            {
+                if (double.TryParse(titlePositionXMatch.Groups[1].Value, out double x))
+                {
+                    config.TitlePositionX = x;
+                }
+                return;
+            }
+
+            // TITLE_POSITION_Y コマンド
+            var titlePositionYMatch = TitlePositionYPattern.Match(line);
+            if (titlePositionYMatch.Success)
+            {
+                if (double.TryParse(titlePositionYMatch.Groups[1].Value, out double y))
+                {
+                    config.TitlePositionY = y;
+                }
+                return;
+            }
+
+            // SUBTITLE_POSITION_Y コマンド
+            var subtitlePositionYMatch = SubtitlePositionYPattern.Match(line);
+            if (subtitlePositionYMatch.Success)
+            {
+                if (double.TryParse(subtitlePositionYMatch.Groups[1].Value, out double y))
+                {
+                    config.SubtitlePositionY = y;
+                }
+                return;
+            }
+
+            // TITLE_FONT_SIZE コマンド
+            var titleFontSizeMatch = TitleFontSizePattern.Match(line);
+            if (titleFontSizeMatch.Success)
+            {
+                if (int.TryParse(titleFontSizeMatch.Groups[1].Value, out int size))
+                {
+                    config.TitleFontSize = size;
+                }
+                return;
+            }
+
+            // SUBTITLE_FONT_SIZE コマンド
+            var subtitleFontSizeMatch = SubtitleFontSizePattern.Match(line);
+            if (subtitleFontSizeMatch.Success)
+            {
+                if (int.TryParse(subtitleFontSizeMatch.Groups[1].Value, out int size))
+                {
+                    config.SubtitleFontSize = size;
+                }
+                return;
+            }
+
+            // DEFAULT_FREETEXT_COLOR コマンド
+            var defaultFreeTextColorMatch = DefaultFreeTextColorPattern.Match(line);
+            if (defaultFreeTextColorMatch.Success)
+            {
+                config.DefaultFreeTextColor = "#" + defaultFreeTextColorMatch.Groups[1].Value.ToUpper();
+                return;
+            }
         }
 
         /// <summary>
@@ -207,6 +295,12 @@ namespace Wideor.App.Shared.Infra
             sb.AppendLine($"DEFAULT_TITLE_COLOR {config.DefaultTitleColor}");
             sb.AppendLine($"DEFAULT_SUBTITLE_COLOR {config.DefaultSubtitleColor}");
             sb.AppendLine($"DEFAULT_BACKGROUND_ALPHA {config.DefaultBackgroundAlpha:F1}");
+            sb.AppendLine($"TITLE_POSITION_X {config.TitlePositionX:F2}");
+            sb.AppendLine($"TITLE_POSITION_Y {config.TitlePositionY:F2}");
+            sb.AppendLine($"SUBTITLE_POSITION_Y {config.SubtitlePositionY:F2}");
+            sb.AppendLine($"TITLE_FONT_SIZE {config.TitleFontSize}");
+            sb.AppendLine($"SUBTITLE_FONT_SIZE {config.SubtitleFontSize}");
+            sb.AppendLine($"DEFAULT_FREETEXT_COLOR {config.DefaultFreeTextColor}");
             sb.AppendLine("===");
 
             return sb.ToString();

@@ -62,6 +62,11 @@ namespace Wideor.App.Shared.Domain
         public Dictionary<string, string> Metadata { get; init; } = new();
 
         /// <summary>
+        /// 自由テキスト項目のリスト（#や>以外のテキスト）
+        /// </summary>
+        public List<FreeTextItem> FreeTextItems { get; init; } = new();
+
+        /// <summary>
         /// 指定された時間がこのシーンブロックの範囲内かどうかを判定します。
         /// </summary>
         public bool ContainsTime(double time)

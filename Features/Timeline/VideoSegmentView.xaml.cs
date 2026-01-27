@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
 using System.Reactive.Disposables;
 using System.Threading.Tasks;
 using System.Windows;
@@ -91,21 +94,86 @@ namespace Wideor.App.Features.Timeline
         }
 
         /// <summary>
+        /// 自由テキスト項目（パラグラフ装飾用）
+        /// </summary>
+        public List<FreeTextItem>? FreeTextItems
+        {
+            get => (List<FreeTextItem>?)GetValue(FreeTextItemsProperty);
+            set => SetValue(FreeTextItemsProperty, value);
+        }
+
+        public static readonly DependencyProperty FreeTextItemsProperty =
+            DependencyProperty.Register(nameof(FreeTextItems), typeof(List<FreeTextItem>), typeof(VideoSegmentView),
+                new PropertyMetadata(null, OnFreeTextItemsChanged));
+
+        private static void OnFreeTextItemsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is VideoSegmentView view)
+            {
+                view.UpdateFreeTextOverlay();
+            }
+        }
+
+        /// <summary>
+        /// プロジェクト設定（テロップ位置設定を使用）
+        /// </summary>
+        public ProjectConfig? ProjectConfig
+        {
+            get => (ProjectConfig?)GetValue(ProjectConfigProperty);
+            set => SetValue(ProjectConfigProperty, value);
+        }
+
+        public static readonly DependencyProperty ProjectConfigProperty =
+            DependencyProperty.Register(nameof(ProjectConfig), typeof(ProjectConfig), typeof(VideoSegmentView),
+                new PropertyMetadata(null, OnProjectConfigChanged));
+
+        private static void OnProjectConfigChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is VideoSegmentView view && view._isPlaying)
+            {
+                // 再生中の場合のみ、設定変更時にオーバーレイを更新
+                view.UpdateTitleOverlay();
+                view.UpdateSubtitleOverlay();
+                view.UpdateFreeTextOverlay();
+            }
+        }
+
+        /// <summary>
         /// タイトルオーバーレイを更新
         /// </summary>
         private void UpdateTitleOverlay()
         {
-            if (TitleOverlay == null || TitleText == null)
+            if (TitleOverlayPopup == null || TitleText == null || VideoPlayer == null)
                 return;
 
             if (!string.IsNullOrWhiteSpace(Title))
             {
                 TitleText.Text = Title;
-                TitleOverlay.Visibility = Visibility.Visible;
+                
+                // ProjectConfigから位置設定を取得（なければデフォルト値）
+                var posX = ProjectConfig?.TitlePositionX ?? 0.05;
+                var posY = ProjectConfig?.TitlePositionY ?? 0.05;
+                var fontSize = ProjectConfig?.TitleFontSize ?? 32;
+                
+                TitleText.FontSize = fontSize;
+                
+                // VideoPlayerのサイズを基準に位置を計算
+                var videoWidth = VideoPlayer.ActualWidth > 0 ? VideoPlayer.ActualWidth : 320;
+                var videoHeight = VideoPlayer.ActualHeight > 0 ? VideoPlayer.ActualHeight : 180;
+                
+                // Popup位置を設定（VideoPlayerからの相対位置）
+                TitleOverlayPopup.HorizontalOffset = posX * videoWidth;
+                TitleOverlayPopup.VerticalOffset = posY * videoHeight;
+                TitleOverlayPopup.IsOpen = true;
+                
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:UpdateTitleOverlay",
+                    "Title overlay shown",
+                    new { title = Title, posX = posX, posY = posY, fontSize = fontSize, segmentId = Segment?.Id ?? -1 });
             }
             else
             {
-                TitleOverlay.Visibility = Visibility.Collapsed;
+                TitleOverlayPopup.IsOpen = false;
             }
         }
 
@@ -114,18 +182,90 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         private void UpdateSubtitleOverlay()
         {
-            if (SubtitleOverlay == null || SubtitleText == null)
+            if (SubtitleOverlayPopup == null || SubtitleText == null || VideoPlayer == null)
                 return;
 
             if (!string.IsNullOrWhiteSpace(Subtitle))
             {
                 SubtitleText.Text = Subtitle;
-                SubtitleOverlay.Visibility = Visibility.Visible;
+                
+                // ProjectConfigから位置設定を取得（なければデフォルト値）
+                var posY = ProjectConfig?.SubtitlePositionY ?? 0.85;
+                var fontSize = ProjectConfig?.SubtitleFontSize ?? 24;
+                
+                SubtitleText.FontSize = fontSize;
+                
+                // VideoPlayerのサイズを基準に位置を計算
+                var videoWidth = VideoPlayer.ActualWidth > 0 ? VideoPlayer.ActualWidth : 320;
+                var videoHeight = VideoPlayer.ActualHeight > 0 ? VideoPlayer.ActualHeight : 180;
+                
+                // 中央揃えのため、横位置は動画の中央から字幕の半分を引く
+                // MaxWidth=500なので、おおよそ中央に配置
+                SubtitleOverlayPopup.HorizontalOffset = (videoWidth - 500) / 2;
+                SubtitleOverlayPopup.VerticalOffset = posY * videoHeight;
+                SubtitleOverlayPopup.IsOpen = true;
+                
+                LogHelper.WriteLog(
+                    "VideoSegmentView.xaml.cs:UpdateSubtitleOverlay",
+                    "Subtitle overlay shown",
+                    new { subtitle = Subtitle, posY = posY, fontSize = fontSize, segmentId = Segment?.Id ?? -1 });
             }
             else
             {
-                SubtitleOverlay.Visibility = Visibility.Collapsed;
+                SubtitleOverlayPopup.IsOpen = false;
             }
+        }
+
+        /// <summary>
+        /// 自由テキストオーバーレイを更新
+        /// </summary>
+        private void UpdateFreeTextOverlay()
+        {
+            if (FreeTextOverlayPopup == null || FreeTextOverlayContainer == null || VideoPlayer == null)
+                return;
+
+            if (FreeTextItems == null || FreeTextItems.Count == 0)
+            {
+                FreeTextOverlayContainer.ItemsSource = null;
+                FreeTextOverlayPopup.IsOpen = false;
+                return;
+            }
+
+            // VideoPlayerのサイズを基準に位置を計算
+            var videoWidth = VideoPlayer.ActualWidth > 0 ? VideoPlayer.ActualWidth : 320;
+            var videoHeight = VideoPlayer.ActualHeight > 0 ? VideoPlayer.ActualHeight : 180;
+
+            // FreeTextItemをCanvasの座標に変換
+            var displayItems = FreeTextItems.Select(item => new FreeTextDisplayItem
+            {
+                Text = item.Text,
+                CanvasLeft = item.X * videoWidth,
+                CanvasTop = item.Y * videoHeight
+            }).ToList();
+
+            FreeTextOverlayContainer.ItemsSource = displayItems;
+            FreeTextOverlayContainer.Width = videoWidth;
+            FreeTextOverlayContainer.Height = videoHeight;
+            
+            // Popupを動画の左上に配置（Canvasの座標は相対的）
+            FreeTextOverlayPopup.HorizontalOffset = 0;
+            FreeTextOverlayPopup.VerticalOffset = 0;
+            FreeTextOverlayPopup.IsOpen = true;
+
+            LogHelper.WriteLog(
+                "VideoSegmentView.xaml.cs:UpdateFreeTextOverlay",
+                "Free text overlay updated",
+                new { itemCount = displayItems.Count, segmentId = Segment?.Id ?? -1 });
+        }
+
+        /// <summary>
+        /// 自由テキスト表示用の内部クラス（Canvas座標を含む）
+        /// </summary>
+        private class FreeTextDisplayItem
+        {
+            public string Text { get; set; } = string.Empty;
+            public double CanvasLeft { get; set; }
+            public double CanvasTop { get; set; }
         }
 
         /// <summary>
@@ -267,8 +407,48 @@ namespace Wideor.App.Features.Timeline
         {
             if (d is VideoSegmentView view)
             {
+                // 古いSegmentの監視を解除
+                if (e.OldValue is VideoSegment oldSegment)
+                {
+                    oldSegment.PropertyChanged -= view.OnSegmentPropertyChanged;
+                }
+
+                // 新しいSegmentの監視を開始
+                if (e.NewValue is VideoSegment newSegment)
+                {
+                    newSegment.PropertyChanged += view.OnSegmentPropertyChanged;
+                }
+
                 view.UpdateView();
             }
+        }
+
+        /// <summary>
+        /// Segmentのプロパティが変更されたときの処理
+        /// </summary>
+        private void OnSegmentPropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (_isDisposed)
+                return;
+
+            Dispatcher.InvokeAsync(() =>
+            {
+                switch (e.PropertyName)
+                {
+                    case nameof(VideoSegment.Title):
+                        UpdateTitleOverlay();
+                        break;
+                    case nameof(VideoSegment.Subtitle):
+                        UpdateSubtitleOverlay();
+                        break;
+                    case nameof(VideoSegment.FreeTextItems):
+                        UpdateFreeTextOverlay();
+                        break;
+                    case nameof(VideoSegment.State):
+                        UpdatePlaybackUI();
+                        break;
+                }
+            });
         }
 
         public VideoSegmentView()
@@ -370,10 +550,32 @@ namespace Wideor.App.Features.Timeline
             {
                 UpdateClipHeight(ClipHeight);
             }
+            
+            // 再生中の場合のみ、サイズ変更時にテロップオーバーレイPopupの位置を再計算
+            if (_isPlaying)
+            {
+                UpdateTitleOverlay();
+                UpdateSubtitleOverlay();
+                UpdateFreeTextOverlay();
+            }
         }
 
         private void VideoSegmentView_Unloaded(object sender, RoutedEventArgs e)
         {
+            // Segmentの監視を解除
+            if (Segment != null)
+            {
+                Segment.PropertyChanged -= OnSegmentPropertyChanged;
+            }
+
+            // Popupを閉じる
+            if (TitleOverlayPopup != null)
+                TitleOverlayPopup.IsOpen = false;
+            if (SubtitleOverlayPopup != null)
+                SubtitleOverlayPopup.IsOpen = false;
+            if (FreeTextOverlayPopup != null)
+                FreeTextOverlayPopup.IsOpen = false;
+
             // 現在再生中の参照をクリア
             lock (_playbackLock)
             {
@@ -576,6 +778,11 @@ namespace Wideor.App.Features.Timeline
                 VideoPlayer.Visibility = Visibility.Visible;
                 ThumbnailPlaceholder.Visibility = Visibility.Collapsed;
                 CenterPlayButton.Opacity = 0.3;
+                
+                // 再生中はテロップオーバーレイPopupを表示
+                UpdateTitleOverlay();
+                UpdateSubtitleOverlay();
+                UpdateFreeTextOverlay();
             }
             else
             {
@@ -585,6 +792,14 @@ namespace Wideor.App.Features.Timeline
                 
                 // サムネイル表示を更新
                 UpdateThumbnailDisplay();
+                
+                // 停止中はテロップオーバーレイPopupを非表示
+                if (TitleOverlayPopup != null)
+                    TitleOverlayPopup.IsOpen = false;
+                if (SubtitleOverlayPopup != null)
+                    SubtitleOverlayPopup.IsOpen = false;
+                if (FreeTextOverlayPopup != null)
+                    FreeTextOverlayPopup.IsOpen = false;
             }
         }
 
@@ -1051,12 +1266,16 @@ namespace Wideor.App.Features.Timeline
         {
             if (isSelected)
             {
-                MainBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 122, 204));  // 青いハイライト
+                // アクセントカラーを使用
+                var accentBrush = Application.Current.TryFindResource("AccentBrush") as SolidColorBrush;
+                MainBorder.BorderBrush = accentBrush ?? new SolidColorBrush(Color.FromRgb(0, 122, 204));  // 青いハイライト（#007ACC）
                 MainBorder.BorderThickness = new Thickness(3);
             }
             else
             {
-                MainBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(51, 51, 51));  // #333333
+                // 通常のボーダーカラーを使用
+                var borderBrush = Application.Current.TryFindResource("BorderBrush") as SolidColorBrush;
+                MainBorder.BorderBrush = borderBrush ?? new SolidColorBrush(Color.FromRgb(208, 208, 208));  // #D0D0D0（明るい灰色）
                 MainBorder.BorderThickness = new Thickness(1);
             }
         }
@@ -1074,13 +1293,11 @@ namespace Wideor.App.Features.Timeline
             {
                 // 再生中 → 一時停止（サムネイル状態に戻す）
                 // ロック内で参照をクリアしてからロック外でStopAndCleanupを呼び出す
-                bool shouldClearReference = false;
                 lock (_playbackLock)
                 {
                     if (_currentlyPlayingView == this)
                     {
                         _currentlyPlayingView = null;
-                        shouldClearReference = true;
                     }
                 }
                 
@@ -1125,8 +1342,8 @@ namespace Wideor.App.Features.Timeline
                     }
                     else
                     {
-                        // 異なるスレッドの場合は非同期で実行
-                        previousView.Dispatcher.BeginInvoke(() =>
+                        // 異なるスレッドの場合は非同期で実行（意図的にawaitしない）
+                        _ = previousView.Dispatcher.BeginInvoke(() =>
                         {
                             previousView.StopAndCleanupSafe();
                         }, DispatcherPriority.Normal);
@@ -1240,6 +1457,20 @@ namespace Wideor.App.Features.Timeline
         {
             if (_isDisposed) return;
             _isDisposed = true;
+
+            // Segmentの監視を解除
+            if (Segment != null)
+            {
+                Segment.PropertyChanged -= OnSegmentPropertyChanged;
+            }
+
+            // Popupを閉じる
+            if (TitleOverlayPopup != null)
+                TitleOverlayPopup.IsOpen = false;
+            if (SubtitleOverlayPopup != null)
+                SubtitleOverlayPopup.IsOpen = false;
+            if (FreeTextOverlayPopup != null)
+                FreeTextOverlayPopup.IsOpen = false;
 
             // 現在再生中の参照をクリア
             lock (_playbackLock)

@@ -133,6 +133,16 @@
                                  ToolTip="ズームレベルを100 px/sにリセットします" />
                 </StackPanel>
             </fluent:RibbonGroupBox>
+
+            <!-- テーマグループ -->
+            <fluent:RibbonGroupBox Header="テーマ">
+                <StackPanel Orientation="Horizontal">
+                    <fluent:ToggleButton Header="ダークモード"
+                                       Command="{Binding ToggleDarkModeCommand}"
+                                       IsChecked="{Binding IsDarkMode.Value, Mode=TwoWay}"
+                                       ToolTip="ダークモードとライトモードを切り替えます" />
+                </StackPanel>
+            </fluent:RibbonGroupBox>
         </fluent:RibbonTabItem>
 
         <!-- ヘルプタブ -->

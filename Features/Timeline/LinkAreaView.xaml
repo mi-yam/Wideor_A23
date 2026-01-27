@@ -7,7 +7,7 @@
              mc:Ignorable="d" 
              d:DesignHeight="450" d:DesignWidth="80"
              Width="80"
-             Background="#1F1F1F">
+             Background="{DynamicResource PanelBackgroundBrush}">
     
     <Grid>
         <!-- 台形描画用Canvas -->
@@ -18,7 +18,7 @@
         </Canvas>
         
         <!-- 左右のボーダーライン -->
-        <Border BorderBrush="#444444" 
+        <Border BorderBrush="{DynamicResource BorderBrush}" 
                 BorderThickness="1,0,1,0" 
                 IsHitTestVisible="False"/>
     </Grid>

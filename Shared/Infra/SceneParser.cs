@@ -100,9 +100,9 @@ namespace Wideor.App.Shared.Infra
                     contentLines.Add(lines[j]);
                 }
 
-                // コンテンツからタイトル、字幕を抽出
+                // コンテンツからタイトル、字幕、自由テキストを抽出
                 var contentText = string.Join("\n", contentLines).Trim();
-                var (title, subtitle) = ExtractTitleAndSubtitle(contentText);
+                var (title, subtitle, freeTextItems) = ExtractTitleSubtitleAndFreeText(contentText, separatorIndex + 2);
 
                 // SceneBlock を生成
                 var scene = new SceneBlock
@@ -113,7 +113,8 @@ namespace Wideor.App.Shared.Infra
                     LineNumber = separatorIndex + 1, // 1ベースの行番号
                     ContentText = contentText,
                     Title = title,
-                    Subtitle = subtitle
+                    Subtitle = subtitle,
+                    FreeTextItems = freeTextItems
                 };
 
                 return scene;
@@ -144,29 +145,165 @@ namespace Wideor.App.Shared.Infra
 
         /// <summary>
         /// コンテンツからタイトル（# で始まる行）と字幕（> で始まる行）を抽出します。
+        /// （後方互換性のため残す）
         /// </summary>
         private (string? title, string? subtitle) ExtractTitleAndSubtitle(string contentText)
         {
+            var (title, subtitle, _) = ExtractTitleSubtitleAndFreeText(contentText, 0);
+            return (title, subtitle);
+        }
+
+        /// <summary>
+        /// コンテンツからタイトル（# で始まる行）、字幕（> で始まる行）、自由テキストを抽出します。
+        /// - # で始まる行 → タイトル（見出し1）、画面上部左寄せ
+        /// - > で始まる行 → 字幕、画面下部中央揃え
+        /// - それ以外のコマンドでない行 → 自由テキスト（Wordのテキストボックス風）
+        /// </summary>
+        /// <param name="contentText">コンテンツテキスト</param>
+        /// <param name="startLineNumber">コンテンツ開始行番号（デバッグ用）</param>
+        private (string? title, string? subtitle, List<FreeTextItem> freeTextItems) ExtractTitleSubtitleAndFreeText(
+            string contentText, int startLineNumber)
+        {
             string? title = null;
             string? subtitle = null;
+            var freeTextItems = new List<FreeTextItem>();
 
             var lines = contentText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            var freeTextBuilder = new StringBuilder();
+            int freeTextStartLine = -1;
 
-            foreach (var line in lines)
+            for (int i = 0; i < lines.Length; i++)
             {
+                var line = lines[i];
                 var trimmedLine = line.TrimStart();
 
-                if (trimmedLine.StartsWith("# ") && title == null)
+                // 空行はスキップ（自由テキストの区切りとして扱う）
+                if (string.IsNullOrWhiteSpace(trimmedLine))
                 {
-                    title = trimmedLine.Substring(2).Trim();
+                    // 蓄積された自由テキストがあれば追加
+                    if (freeTextBuilder.Length > 0)
+                    {
+                        freeTextItems.Add(new FreeTextItem
+                        {
+                            Text = freeTextBuilder.ToString().Trim(),
+                            LineNumber = startLineNumber + freeTextStartLine
+                        });
+                        freeTextBuilder.Clear();
+                        freeTextStartLine = -1;
+                    }
+                    continue;
                 }
-                else if (trimmedLine.StartsWith("> ") && subtitle == null)
+
+                // # で始まる行（タイトル/見出し1）
+                if (trimmedLine.StartsWith("# "))
                 {
-                    subtitle = trimmedLine.Substring(2).Trim();
+                    // 蓄積された自由テキストがあれば追加
+                    if (freeTextBuilder.Length > 0)
+                    {
+                        freeTextItems.Add(new FreeTextItem
+                        {
+                            Text = freeTextBuilder.ToString().Trim(),
+                            LineNumber = startLineNumber + freeTextStartLine
+                        });
+                        freeTextBuilder.Clear();
+                        freeTextStartLine = -1;
+                    }
+
+                    if (title == null)
+                    {
+                        title = trimmedLine.Substring(2).Trim();
+                    }
+                    else
+                    {
+                        // 複数のタイトル行は自由テキストとして扱う
+                        freeTextItems.Add(new FreeTextItem
+                        {
+                            Text = trimmedLine.Substring(2).Trim(),
+                            LineNumber = startLineNumber + i,
+                            Y = 0.1 + (freeTextItems.Count * 0.1) // 位置を少しずつずらす
+                        });
+                    }
+                    continue;
+                }
+
+                // > で始まる行（字幕）
+                if (trimmedLine.StartsWith("> "))
+                {
+                    // 蓄積された自由テキストがあれば追加
+                    if (freeTextBuilder.Length > 0)
+                    {
+                        freeTextItems.Add(new FreeTextItem
+                        {
+                            Text = freeTextBuilder.ToString().Trim(),
+                            LineNumber = startLineNumber + freeTextStartLine
+                        });
+                        freeTextBuilder.Clear();
+                        freeTextStartLine = -1;
+                    }
+
+                    if (subtitle == null)
+                    {
+                        subtitle = trimmedLine.Substring(2).Trim();
+                    }
+                    else
+                    {
+                        // 複数の字幕行は連結
+                        subtitle += "\n" + trimmedLine.Substring(2).Trim();
+                    }
+                    continue;
+                }
+
+                // コマンド行はスキップ
+                if (IsCommandLine(trimmedLine))
+                {
+                    // 蓄積された自由テキストがあれば追加
+                    if (freeTextBuilder.Length > 0)
+                    {
+                        freeTextItems.Add(new FreeTextItem
+                        {
+                            Text = freeTextBuilder.ToString().Trim(),
+                            LineNumber = startLineNumber + freeTextStartLine
+                        });
+                        freeTextBuilder.Clear();
+                        freeTextStartLine = -1;
+                    }
+                    continue;
+                }
+
+                // 番号付きリスト（例: 1. テキスト）も自由テキストとして扱う
+                // それ以外のテキスト → 自由テキストとして蓄積
+                if (freeTextStartLine < 0)
+                {
+                    freeTextStartLine = i;
+                }
+                if (freeTextBuilder.Length > 0)
+                {
+                    freeTextBuilder.AppendLine();
+                }
+                freeTextBuilder.Append(trimmedLine);
+            }
+
+            // 最後に蓄積された自由テキストがあれば追加
+            if (freeTextBuilder.Length > 0)
+            {
+                freeTextItems.Add(new FreeTextItem
+                {
+                    Text = freeTextBuilder.ToString().Trim(),
+                    LineNumber = startLineNumber + freeTextStartLine
+                });
+            }
+
+            // 自由テキストの位置を設定（複数ある場合は縦に並べる）
+            for (int i = 0; i < freeTextItems.Count; i++)
+            {
+                // デフォルト位置を設定（画面中央付近から始める）
+                if (freeTextItems[i].Y == 0.5) // デフォルト値の場合のみ
+                {
+                    freeTextItems[i].Y = 0.3 + (i * 0.15); // 30%から始めて15%ずつずらす
                 }
             }
 
-            return (title, subtitle);
+            return (title, subtitle, freeTextItems);
         }
 
         /// <summary>

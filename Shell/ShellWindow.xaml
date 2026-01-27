@@ -13,7 +13,7 @@
         Height="800" 
         Width="1400"
         WindowState="Maximized"
-        Background="#1A1A1A">
+        Background="{DynamicResource MainBackgroundBrush}">
     <!-- DataContextはShellWindow.xaml.csでViewModelプロパティ変更時に設定される -->
 
     <Grid>
@@ -46,7 +46,7 @@
             <!-- C0: TimelinePage (TimeRuler + FilmStrip) -->
             <timeline:TimelinePage Grid.Column="0"
                                   ViewModel="{Binding TimelineViewModel}"
-                                  BorderBrush="#444444"
+                                  BorderBrush="{DynamicResource BorderBrush}"
                                   BorderThickness="0,0,0,0"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
@@ -56,20 +56,20 @@
             <GridSplitter Grid.Column="1"
                          HorizontalAlignment="Stretch"
                          VerticalAlignment="Stretch"
-                         Background="#444444"
+                         Background="{DynamicResource BorderBrush}"
                          ResizeDirection="Columns"
                          ShowsPreview="False"
                          Cursor="SizeWE" />
 
             <!-- C2: Link Area (プレースホルダー - 将来実装) -->
             <Border Grid.Column="2"
-                    Background="#2A2A2A"
-                    BorderBrush="#444444"
+                    Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,0,1,0"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch">
                 <TextBlock Text="Link Area"
-                          Foreground="#666666"
+                          Foreground="{DynamicResource PlaceholderTextBrush}"
                           FontSize="12"
                           HorizontalAlignment="Center"
                           VerticalAlignment="Center"

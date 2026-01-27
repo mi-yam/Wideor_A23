@@ -18,6 +18,14 @@ namespace Wideor.App.Shared.Domain
         private string _defaultTitleColor = "#FFFFFF";
         private string _defaultSubtitleColor = "#FFFFFF";
         private double _defaultBackgroundAlpha = 0.8;
+        
+        // テロップ位置設定
+        private double _titlePositionX = 0.05;  // 左から5%
+        private double _titlePositionY = 0.05;  // 上から5%
+        private double _subtitlePositionY = 0.85; // 下から15%（画面下部）
+        private int _titleFontSize = 32;
+        private int _subtitleFontSize = 24;
+        private string _defaultFreeTextColor = "#FFFFFF";
 
         /// <summary>
         /// プロジェクト名
@@ -171,6 +179,102 @@ namespace Wideor.App.Shared.Domain
         }
 
         /// <summary>
+        /// タイトル（見出し1）のX位置（0.0～1.0、画面左端からの比率）
+        /// </summary>
+        public double TitlePositionX
+        {
+            get => _titlePositionX;
+            set
+            {
+                if (_titlePositionX != value && value >= 0.0 && value <= 1.0)
+                {
+                    _titlePositionX = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// タイトル（見出し1）のY位置（0.0～1.0、画面上端からの比率）
+        /// </summary>
+        public double TitlePositionY
+        {
+            get => _titlePositionY;
+            set
+            {
+                if (_titlePositionY != value && value >= 0.0 && value <= 1.0)
+                {
+                    _titlePositionY = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 字幕のY位置（0.0～1.0、画面上端からの比率、X位置は中央揃え）
+        /// </summary>
+        public double SubtitlePositionY
+        {
+            get => _subtitlePositionY;
+            set
+            {
+                if (_subtitlePositionY != value && value >= 0.0 && value <= 1.0)
+                {
+                    _subtitlePositionY = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// タイトルのフォントサイズ
+        /// </summary>
+        public int TitleFontSize
+        {
+            get => _titleFontSize;
+            set
+            {
+                if (_titleFontSize != value && value > 0)
+                {
+                    _titleFontSize = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 字幕のフォントサイズ
+        /// </summary>
+        public int SubtitleFontSize
+        {
+            get => _subtitleFontSize;
+            set
+            {
+                if (_subtitleFontSize != value && value > 0)
+                {
+                    _subtitleFontSize = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 自由テキストのデフォルト色
+        /// </summary>
+        public string DefaultFreeTextColor
+        {
+            get => _defaultFreeTextColor;
+            set
+            {
+                if (_defaultFreeTextColor != value && IsValidColor(value))
+                {
+                    _defaultFreeTextColor = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
         /// 色コードが有効かどうかを判定
         /// </summary>
         private static bool IsValidColor(string color)
@@ -203,6 +307,12 @@ namespace Wideor.App.Shared.Domain
             DefaultTitleColor = "#FFFFFF";
             DefaultSubtitleColor = "#FFFFFF";
             DefaultBackgroundAlpha = 0.8;
+            TitlePositionX = 0.05;
+            TitlePositionY = 0.05;
+            SubtitlePositionY = 0.85;
+            TitleFontSize = 32;
+            SubtitleFontSize = 24;
+            DefaultFreeTextColor = "#FFFFFF";
         }
 
         /// <summary>
@@ -220,7 +330,13 @@ namespace Wideor.App.Shared.Domain
                 DefaultFontSize = this.DefaultFontSize,
                 DefaultTitleColor = this.DefaultTitleColor,
                 DefaultSubtitleColor = this.DefaultSubtitleColor,
-                DefaultBackgroundAlpha = this.DefaultBackgroundAlpha
+                DefaultBackgroundAlpha = this.DefaultBackgroundAlpha,
+                TitlePositionX = this.TitlePositionX,
+                TitlePositionY = this.TitlePositionY,
+                SubtitlePositionY = this.SubtitlePositionY,
+                TitleFontSize = this.TitleFontSize,
+                SubtitleFontSize = this.SubtitleFontSize,
+                DefaultFreeTextColor = this.DefaultFreeTextColor
             };
         }
 

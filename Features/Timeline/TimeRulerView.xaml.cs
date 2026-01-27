@@ -260,10 +260,11 @@ namespace Wideor.App.Features.Timeline
                     RulerCanvas.Children.Add(line);
 
                     // 数字ラベル（0.から9.まで）
+                    var primaryTextBrush = Application.Current.TryFindResource("PrimaryTextBrush") as SolidColorBrush;
                     var textBlock = new TextBlock
                     {
                         Text = $"{(int)time}.",
-                        Foreground = new SolidColorBrush(Colors.White),
+                        Foreground = primaryTextBrush ?? new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)), // プライマリテキスト色
                         FontSize = 12,
                         FontWeight = FontWeights.Normal,
                         LayoutTransform = new RotateTransform(0), // 縦方向なので回転不要
@@ -419,12 +420,17 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         private Brush GetTickBrush(TickLevel level)
         {
+            // アプリケーションリソースから色を取得
+            var primaryTextBrush = Application.Current.TryFindResource("PrimaryTextBrush") as SolidColorBrush;
+            var tertiaryTextBrush = Application.Current.TryFindResource("TertiaryTextBrush") as SolidColorBrush;
+            var borderBrush = Application.Current.TryFindResource("BorderBrush") as SolidColorBrush;
+            
             return level switch
             {
-                TickLevel.Major => new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF)), // 白（太い線）
-                TickLevel.Medium => new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0)), // 明るいグレー
-                TickLevel.Minor => new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)), // グレー
-                _ => new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80))
+                TickLevel.Major => primaryTextBrush ?? new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)), // プライマリテキスト色（太い線）
+                TickLevel.Medium => tertiaryTextBrush ?? new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), // ターシャリテキスト色（中間線）
+                TickLevel.Minor => borderBrush ?? new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0)), // ボーダー色（細い線）
+                _ => borderBrush ?? new SolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0))
             };
         }
 

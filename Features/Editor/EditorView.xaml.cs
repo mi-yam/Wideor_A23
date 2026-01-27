@@ -167,14 +167,17 @@ namespace Wideor.App.Features.Editor
         }
 
         /// <summary>
-        /// TextEditorの選択色を設定（TextAreaのプロパティを使用）
+        /// TextEditorの選択色を設定（Word風：薄い青背景・黒文字）
         /// </summary>
         private void SetupTextEditorSelectionColors()
         {
             if (TextEditorControl?.TextArea != null)
             {
-                TextEditorControl.TextArea.SelectionBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3D, 0x5A, 0xFE));
-                TextEditorControl.TextArea.SelectionForeground = System.Windows.Media.Brushes.White;
+                // Word風の選択色（薄い青 #CEE6FF、文字は黒）
+                TextEditorControl.TextArea.SelectionBrush = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0xCE, 0xE6, 0xFF));
+                TextEditorControl.TextArea.SelectionForeground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E));
             }
         }
 

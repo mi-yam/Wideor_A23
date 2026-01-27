@@ -18,7 +18,7 @@
         <!-- コンパクトボタンのスタイル -->
         <Style x:Key="CompactButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
@@ -36,10 +36,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#40FFFFFF" />
+                                <Setter Property="Background" Value="{DynamicResource LightBorderBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Background" Value="#60FFFFFF" />
+                                <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -67,7 +67,7 @@
                                     <RepeatButton Command="Slider.IncreaseLarge">
                                         <RepeatButton.Template>
                                             <ControlTemplate TargetType="RepeatButton">
-                                                <Border Background="#555555" Height="3" CornerRadius="1.5" />
+                                                <Border Background="{DynamicResource BorderBrush}" Height="3" CornerRadius="1.5" />
                                             </ControlTemplate>
                                         </RepeatButton.Template>
                                     </RepeatButton>
@@ -117,18 +117,19 @@
         </Style>
     </UserControl.Resources>
     
-    <Border x:Name="MainBorder"
-            Background="#1A1A1A"
-            BorderBrush="#333333"
-            BorderThickness="1"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Top"
-            MinWidth="260"
-            MinHeight="150"
-            ClipToBounds="True">
-        <Grid HorizontalAlignment="Stretch"
-              VerticalAlignment="Stretch"
-              ClipToBounds="True">
+    <Grid>
+        <Border x:Name="MainBorder"
+                Background="{DynamicResource ContentBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Top"
+                MinWidth="260"
+                MinHeight="150"
+                ClipToBounds="True">
+            <Grid HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  ClipToBounds="True">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -136,20 +137,21 @@
             </Grid.RowDefinitions>
             
             <!-- ファイル名ヘッダー -->
-            <Border Grid.Row="0" Background="#252525" Padding="6,3">
+            <Border Grid.Row="0" Background="{DynamicResource HeaderBackgroundBrush}" Padding="6,3">
                 <TextBlock x:Name="FileNameText"
                           Text="動画ファイル"
-                          Foreground="#AAAAAA"
+                          Foreground="{DynamicResource SecondaryTextBrush}"
                           FontSize="11"
                           TextTrimming="CharacterEllipsis"
                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
             </Border>
             
             <!-- 動画表示エリア -->
-            <Grid Grid.Row="1" Background="#000000" ClipToBounds="True">
+            <Grid Grid.Row="1" Background="#000000" ClipToBounds="True" Panel.ZIndex="0">
                 <!-- サムネイル/プレースホルダー（再生していない時に表示） -->
                 <Border x:Name="ThumbnailPlaceholder"
-                       Background="#1A1A1A"
+                       Panel.ZIndex="1"
+                       Background="{DynamicResource PanelBackgroundBrush}"
                        HorizontalAlignment="Stretch"
                        VerticalAlignment="Stretch">
                     <Grid>
@@ -166,12 +168,12 @@
                                    Visibility="Collapsed">
                             <TextBlock Text="🎬"
                                       FontSize="40"
-                                      Foreground="#444444"
+                                      Foreground="{DynamicResource PlaceholderTextBrush}"
                                       HorizontalAlignment="Center" />
                             <TextBlock x:Name="PlaceholderDurationText"
                                       Text="00:00"
                                       FontSize="12"
-                                      Foreground="#666666"
+                                      Foreground="{DynamicResource TertiaryTextBrush}"
                                       HorizontalAlignment="Center"
                                       Margin="0,4,0,0" />
                         </StackPanel>
@@ -193,6 +195,7 @@
                 
                 <!-- VideoView（LibVLCSharp）- 再生中のみ表示 -->
                 <vlc:VideoView x:Name="VideoPlayer"
+                              Panel.ZIndex="0"
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Stretch"
                               ClipToBounds="True"
@@ -200,6 +203,7 @@
                 
                 <!-- 中央の再生ボタン（オーバーレイ） -->
                 <Button x:Name="CenterPlayButton"
+                        Panel.ZIndex="2"
                         Style="{StaticResource CenterPlayButtonStyle}"
                         Width="48"
                         Height="48"
@@ -215,7 +219,7 @@
                 </Button>
                 
                 <!-- 非表示時のオーバーレイ -->
-                <Border Background="#80000000">
+                <Border Background="#80000000" Panel.ZIndex="1">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed" />
@@ -236,46 +240,11 @@
                               VerticalAlignment="Center" />
                 </Border>
 
-                <!-- パラグラフ装飾オーバーレイ（タイトル） -->
-                <Border x:Name="TitleOverlay"
-                        Background="#60000000"
-                        CornerRadius="4"
-                        Padding="12,6"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Top"
-                        Margin="12"
-                        Visibility="Collapsed">
-                    <TextBlock x:Name="TitleText"
-                              Text=""
-                              FontSize="18"
-                              FontWeight="Bold"
-                              Foreground="White"
-                              TextWrapping="Wrap"
-                              MaxWidth="400" />
-                </Border>
-
-                <!-- パラグラフ装飾オーバーレイ（字幕） -->
-                <Border x:Name="SubtitleOverlay"
-                        Background="#80000000"
-                        CornerRadius="4"
-                        Padding="16,8"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Bottom"
-                        Margin="12,12,12,48"
-                        Visibility="Collapsed">
-                    <TextBlock x:Name="SubtitleText"
-                              Text=""
-                              FontSize="16"
-                              Foreground="White"
-                              TextAlignment="Center"
-                              TextWrapping="Wrap"
-                              MaxWidth="500" />
-                </Border>
             </Grid>
             
             <!-- コンパクトコントロールバー（1行レイアウト） -->
             <Border Grid.Row="2"
-                    Background="#E0181818"
+                    Background="{DynamicResource MainBackgroundBrush}"
                     Padding="6,4">
                 <Grid VerticalAlignment="Center">
                     <Grid.ColumnDefinitions>
@@ -294,7 +263,7 @@
                         <TextBlock x:Name="PlayPauseIcon"
                                   Text="▶"
                                   FontSize="14"
-                                  Foreground="White" />
+                                  Foreground="{DynamicResource PrimaryTextBrush}" />
                     </Button>
                     
                     <!-- 停止ボタン -->
@@ -304,7 +273,7 @@
                             Click="OnStopClicked">
                         <TextBlock Text="■"
                                   FontSize="11"
-                                  Foreground="White" />
+                                  Foreground="{DynamicResource PrimaryTextBrush}" />
                     </Button>
                     
                     <!-- プログレスバー + 時間表示 -->
@@ -331,9 +300,9 @@
                         <TextBlock Grid.Column="1"
                                   VerticalAlignment="Center"
                                   FontSize="11"
-                                  Foreground="#AAAAAA">
-                            <Run x:Name="CurrentTimeText" Text="00:00" Foreground="White" />
-                            <Run Text="/" Foreground="#666666" />
+                                  Foreground="{DynamicResource TertiaryTextBrush}">
+                            <Run x:Name="CurrentTimeText" Text="00:00" Foreground="{DynamicResource PrimaryTextBrush}" />
+                            <Run Text="/" Foreground="{DynamicResource PlaceholderTextBrush}" />
                             <Run x:Name="TotalTimeText" Text="00:00" />
                         </TextBlock>
                     </Grid>
@@ -342,7 +311,7 @@
                     <TextBlock Grid.Column="3"
                               Text="🔊"
                               FontSize="12"
-                              Foreground="White"
+                              Foreground="{DynamicResource PrimaryTextBrush}"
                               VerticalAlignment="Center"
                               Margin="0,0,2,0" />
                     
@@ -357,6 +326,89 @@
                            ValueChanged="OnVolumeSliderValueChanged" />
                 </Grid>
             </Border>
-        </Grid>
-    </Border>
+            </Grid>
+        </Border>
+        
+        <!-- Popupベースのテロップオーバーレイ（Airspace Issue回避） -->
+        
+        <!-- タイトルオーバーレイPopup -->
+        <Popup x:Name="TitleOverlayPopup"
+               PlacementTarget="{Binding ElementName=VideoPlayer}"
+               Placement="Relative"
+               AllowsTransparency="True"
+               IsHitTestVisible="False"
+               StaysOpen="True"
+               PopupAnimation="None">
+            <Border Background="#CC000000"
+                    CornerRadius="4"
+                    Padding="12,6"
+                    MaxWidth="400">
+                <TextBlock x:Name="TitleText"
+                          Text=""
+                          FontSize="18"
+                          FontWeight="Bold"
+                          Foreground="White"
+                          TextWrapping="Wrap" />
+            </Border>
+        </Popup>
+
+        <!-- 字幕オーバーレイPopup -->
+        <Popup x:Name="SubtitleOverlayPopup"
+               PlacementTarget="{Binding ElementName=VideoPlayer}"
+               Placement="Relative"
+               AllowsTransparency="True"
+               IsHitTestVisible="False"
+               StaysOpen="True"
+               PopupAnimation="None">
+            <Border Background="#CC000000"
+                    CornerRadius="4"
+                    Padding="16,8"
+                    MaxWidth="500">
+                <TextBlock x:Name="SubtitleText"
+                          Text=""
+                          FontSize="16"
+                          Foreground="White"
+                          TextAlignment="Center"
+                          TextWrapping="Wrap" />
+            </Border>
+        </Popup>
+
+        <!-- 自由テキストオーバーレイPopup -->
+        <Popup x:Name="FreeTextOverlayPopup"
+               PlacementTarget="{Binding ElementName=VideoPlayer}"
+               Placement="Relative"
+               AllowsTransparency="True"
+               IsHitTestVisible="False"
+               StaysOpen="True"
+               PopupAnimation="None">
+            <ItemsControl x:Name="FreeTextOverlayContainer"
+                          Background="Transparent">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Canvas />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="#CC000000"
+                                CornerRadius="4"
+                                Padding="10,6"
+                                MaxWidth="300">
+                            <TextBlock Text="{Binding Text}"
+                                      FontSize="14"
+                                      Foreground="White"
+                                      TextWrapping="Wrap" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="Canvas.Left" Value="{Binding CanvasLeft}" />
+                        <Setter Property="Canvas.Top" Value="{Binding CanvasTop}" />
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
+            </ItemsControl>
+        </Popup>
+        
+    </Grid>
 </UserControl>

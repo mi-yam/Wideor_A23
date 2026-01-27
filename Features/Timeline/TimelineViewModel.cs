@@ -113,6 +113,11 @@ namespace Wideor.App.Features.Timeline
         /// </summary>
         public IReadOnlyReactiveProperty<double> CurrentPosition { get; }
 
+        /// <summary>
+        /// プロジェクト設定（テロップ位置設定を含む）
+        /// </summary>
+        public ReactiveProperty<ProjectConfig> ProjectConfig { get; }
+
         // --- Commands ---
 
         /// <summary>
@@ -178,9 +183,13 @@ namespace Wideor.App.Features.Timeline
             BindingOperations.EnableCollectionSynchronization(_videoSegments, new object());
             VideoSegments = new ReadOnlyObservableCollection<VideoSegment>(_videoSegments);
 
+            // プロジェクト設定の初期化
+            ProjectConfig = new ReactiveProperty<ProjectConfig>(new ProjectConfig())
+                .AddTo(_disposables)!;
+
             // 現在再生中のセグメント
             CurrentPlayingSegment = new ReactiveProperty<VideoSegment?>()
-                .AddTo(_disposables);
+                .AddTo(_disposables)!;
 
             // 選択されているセグメント
             SelectedSegment = new ReactiveProperty<VideoSegment?>()

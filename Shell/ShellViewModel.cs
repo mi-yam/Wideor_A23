@@ -143,6 +143,16 @@ namespace Wideor.App.Shell
         /// </summary>
         public ReactiveCommand ShowVersionInfoCommand { get; }
 
+        /// <summary>
+        /// ダークモード切り替えコマンド
+        /// </summary>
+        public ReactiveCommand ToggleDarkModeCommand { get; }
+
+        /// <summary>
+        /// ダークモードが有効かどうか
+        /// </summary>
+        public ReactiveProperty<bool> IsDarkMode { get; }
+
         // --- 編集コマンド（テキストエリアに挿入） ---
 
         /// <summary>
@@ -195,6 +205,10 @@ namespace Wideor.App.Shell
                 .AddTo(_disposables);
 
             InitializationError = _initializationError.ToReadOnlyReactiveProperty(null)
+                .AddTo(_disposables);
+
+            // ダークモード（初期値: false = ライトモード）
+            IsDarkMode = new ReactiveProperty<bool>(false)
                 .AddTo(_disposables);
 
             // 各FeatureのViewModelを初期化
@@ -418,7 +432,7 @@ namespace Wideor.App.Shell
                             Wideor.App.Shared.Infra.LogHelper.WriteLog(
                                 "ShellViewModel.cs:LoadVideoCommand",
                                 "LoadAsync completed",
-                                new { videoFilePath = videoFilePath, success = loadSuccess, isLoaded = PlayerViewModel.IsLoaded?.Value });
+                                new { videoFilePath = videoFilePath, success = loadSuccess, isLoaded = PlayerViewModel.IsLoaded?.Value ?? false });
 
                             if (!loadSuccess)
                             {
@@ -614,6 +628,20 @@ namespace Wideor.App.Shell
                         "バージョン情報",
                         System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Information);
+                })
+                .AddTo(_disposables);
+
+            ToggleDarkModeCommand = new ReactiveCommand()
+                .WithSubscribe(() =>
+                {
+                    // ダークモードを切り替え
+                    IsDarkMode.Value = !IsDarkMode.Value;
+                    ApplyTheme(IsDarkMode.Value);
+                    
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:ToggleDarkModeCommand",
+                        "Dark mode toggled",
+                        new { isDarkMode = IsDarkMode.Value });
                 })
                 .AddTo(_disposables);
 
@@ -851,6 +879,23 @@ namespace Wideor.App.Shell
                 })
                 .AddTo(_disposables);
 
+            // EditorViewModelのProjectConfigをTimelineViewModelに同期
+            EditorViewModel.ProjectConfig
+                .Subscribe(config =>
+                {
+                    TimelineViewModel.ProjectConfig.Value = config;
+                    
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:ProjectConfigSync",
+                        "ProjectConfig synchronized to TimelineViewModel",
+                        new { 
+                            titlePositionX = config.TitlePositionX,
+                            titlePositionY = config.TitlePositionY,
+                            subtitlePositionY = config.SubtitlePositionY
+                        });
+                })
+                .AddTo(_disposables);
+
             // 初期化処理を開始
             _ = InitializeAsync();
         }
@@ -1056,9 +1101,66 @@ namespace Wideor.App.Shell
         }
 
         /// <summary>
+        /// テーマを適用する
+        /// </summary>
+        private void ApplyTheme(bool isDarkMode)
+        {
+            try
+            {
+                var app = System.Windows.Application.Current;
+                var resources = app.Resources;
+
+                if (isDarkMode)
+                {
+                    // ダークモードの配色
+                    resources["MainBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1A, 0x1A, 0x1A));
+                    resources["ContentBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2A, 0x2A, 0x2A));
+                    resources["PanelBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x1F, 0x1F));
+                    resources["HeaderBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E));
+                    
+                    resources["PrimaryTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0xFF, 0xFF));
+                    resources["SecondaryTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xAA, 0xAA, 0xAA));
+                    resources["TertiaryTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x88));
+                    resources["PlaceholderTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
+                    
+                    resources["BorderBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x44, 0x44, 0x44));
+                    resources["LightBorderBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x33, 0x33, 0x33));
+                }
+                else
+                {
+                    // ライトモードの配色
+                    resources["MainBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF5, 0xF5, 0xF5));
+                    resources["ContentBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0xFF, 0xFF));
+                    resources["PanelBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF8, 0xF8, 0xF8));
+                    resources["HeaderBackgroundBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE8, 0xE8, 0xE8));
+                    
+                    resources["PrimaryTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x1E, 0x1E));
+                    resources["SecondaryTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x55, 0x55, 0x55));
+                    resources["TertiaryTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x88));
+                    resources["PlaceholderTextBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xAA, 0xAA, 0xAA));
+                    
+                    resources["BorderBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xD0, 0xD0, 0xD0));
+                    resources["LightBorderBrush"] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0));
+                }
+
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:ApplyTheme",
+                    "Theme applied successfully",
+                    new { isDarkMode = isDarkMode });
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:ApplyTheme",
+                    "Error applying theme",
+                    new { isDarkMode = isDarkMode, error = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// アプリケーションの初期化処理
         /// </summary>
-        private async Task InitializeAsync()
+        private Task InitializeAsync()
         {
             try
             {
@@ -1071,6 +1173,9 @@ namespace Wideor.App.Shell
                     _projectContext.CreateNewProject();
                 }
 
+                // 初期テーマを適用（ライトモード）
+                ApplyTheme(IsDarkMode.Value);
+
                 // 初期化完了
                 _isInitialized.Value = true;
             }
@@ -1079,6 +1184,8 @@ namespace Wideor.App.Shell
                 _initializationError.Value = $"初期化エラー: {ex.Message}";
                 System.Diagnostics.Debug.WriteLine($"ShellViewModel初期化エラー: {ex}");
             }
+            
+            return Task.CompletedTask;
         }
 
         public void Dispose()

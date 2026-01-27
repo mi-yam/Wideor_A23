@@ -7,7 +7,7 @@
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
 
-    <Grid Background="#1A1A1A"
+    <Grid Background="{DynamicResource MainBackgroundBrush}"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch"
           ClipToBounds="True">
@@ -23,9 +23,9 @@
                 <ColumnDefinition Width="*" MinWidth="260" />
             </Grid.ColumnDefinitions>
             
-            <!-- 背景を設定して余白を黒くする -->
+            <!-- 背景を設定 -->
             <Border Grid.Column="1"
-                    Background="#1A1A1A"
+                    Background="{DynamicResource MainBackgroundBrush}"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch" />
 
@@ -33,7 +33,7 @@
             <local:TimeRulerView x:Name="TimeRulerView"
                                 Grid.Column="0"
                                 ViewModel="{Binding ViewModel, RelativeSource={RelativeSource AncestorType=local:TimelinePage}}"
-                                BorderBrush="#444444"
+                                BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="0,0,1,0" />
 
             <!-- C2: FilmStripView（中央） -->

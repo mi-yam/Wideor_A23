@@ -199,11 +199,15 @@ namespace Wideor.App.Features.Timeline
             textY2 = Math.Max(-10, Math.Min(canvasHeight + 10, textY2));
 
             // Pathオブジェクトを作成
+            // アプリケーションリソースから色を取得
+            var borderBrush = Application.Current.TryFindResource("BorderBrush") as SolidColorBrush;
+            var borderColor = borderBrush?.Color ?? Color.FromRgb(160, 160, 160);
+            
             var path = new Path
             {
-                Stroke = new SolidColorBrush(Color.FromRgb(128, 128, 128)),
+                Stroke = new SolidColorBrush(borderColor), // ボーダーカラー
                 StrokeThickness = 1,
-                Fill = new SolidColorBrush(Color.FromArgb(30, 128, 128, 128)),
+                Fill = new SolidColorBrush(Color.FromArgb(30, borderColor.R, borderColor.G, borderColor.B)), // 半透明
                 StrokeLineJoin = PenLineJoin.Round
             };
 

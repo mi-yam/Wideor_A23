@@ -116,6 +116,19 @@ ViewPortの中央（Y = 50%）に「赤いインジケータ（Playhead）」を
 
 挿入文字には３つに分類できる。題名、字幕、補足文である。題名は動画上部に描画されるものである。基本は左詰めである。字幕は、動画の内容について説明等をする役割である。画面下部に置かれるものである。配置は中央で左詰めが基本である。補足文は字幕で補えきれなかったものを画面の任意の場所に配置するものである。
 
+**テロップ記法**:
+- `# テキスト` - 題名（見出し1）として画面上部に左寄せで表示。位置はHeaderのTITLE_POSITION_X/Yで変更可能
+- `> テキスト` - 字幕として画面下部に中央揃えで表示。Y位置はHeaderのSUBTITLE_POSITION_Yで変更可能
+- その他のテキスト - 自由テキスト（補足文）としてWordのテキストボックスのように画面上に表示
+
+**例**:
+```
+--- [00:00:00.000 -> 00:00:10.000] ---
+# オープニング
+> この動画ではボルトの緩め方を説明します
+注意：必ず安全メガネを着用してください
+```
+
 #### 3.4.3 テキスト構造（Header と Body）
 
 テキストエリアは **Header** と **Body** の2つのセクションで構成される。
@@ -133,6 +146,12 @@ DEFAULT_FONT_SIZE 24
 DEFAULT_TITLE_COLOR #FFFFFF
 DEFAULT_SUBTITLE_COLOR #FFFFFF
 DEFAULT_BACKGROUND_ALPHA 0.8
+TITLE_POSITION_X 0.05
+TITLE_POSITION_Y 0.05
+SUBTITLE_POSITION_Y 0.85
+TITLE_FONT_SIZE 32
+SUBTITLE_FONT_SIZE 24
+DEFAULT_FREETEXT_COLOR #FFFFFF
 ===
 ```
 
@@ -145,6 +164,12 @@ DEFAULT_BACKGROUND_ALPHA 0.8
 - **DEFAULT_TITLE_COLOR**: `DEFAULT_TITLE_COLOR #RRGGBB` - 題名のデフォルト色
 - **DEFAULT_SUBTITLE_COLOR**: `DEFAULT_SUBTITLE_COLOR #RRGGBB` - 字幕のデフォルト色
 - **DEFAULT_BACKGROUND_ALPHA**: `DEFAULT_BACKGROUND_ALPHA <0.0-1.0>` - 背景の透明度
+- **TITLE_POSITION_X**: `TITLE_POSITION_X <0.0-1.0>` - タイトル（見出し1）のX位置（画面左端からの比率）
+- **TITLE_POSITION_Y**: `TITLE_POSITION_Y <0.0-1.0>` - タイトル（見出し1）のY位置（画面上端からの比率）
+- **SUBTITLE_POSITION_Y**: `SUBTITLE_POSITION_Y <0.0-1.0>` - 字幕のY位置（X位置は中央揃え固定）
+- **TITLE_FONT_SIZE**: `TITLE_FONT_SIZE <サイズ>` - タイトルのフォントサイズ
+- **SUBTITLE_FONT_SIZE**: `SUBTITLE_FONT_SIZE <サイズ>` - 字幕のフォントサイズ
+- **DEFAULT_FREETEXT_COLOR**: `DEFAULT_FREETEXT_COLOR #RRGGBB` - 自由テキストのデフォルト色
 
 ##### 3.4.3.2 Body セクション
 個々の編集操作を記述するセクション。Header の後（`===` の後）に配置される。

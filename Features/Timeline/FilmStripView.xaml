@@ -17,7 +17,7 @@
 
     <!-- 通常スクロール型のコンテナ -->
     <Grid x:Name="FilmStripContainer"
-          Background="#1A1A1A"
+          Background="{DynamicResource MainBackgroundBrush}"
           ClipToBounds="True"
           HorizontalAlignment="Stretch"
           VerticalAlignment="Stretch">
@@ -25,13 +25,13 @@
         <ScrollViewer x:Name="FilmStripScrollViewer"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
-                      Background="#1A1A1A"
+                      Background="{DynamicResource MainBackgroundBrush}"
                       ScrollChanged="FilmStripScrollViewer_ScrollChanged"
                       PreviewMouseWheel="FilmStripScrollViewer_PreviewMouseWheel">
             <ItemsControl x:Name="FilmStripItemsControl" 
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Top"
-                          Background="#1A1A1A">
+                          Background="{DynamicResource MainBackgroundBrush}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <!-- StackPanelで縦に並べる -->
@@ -43,6 +43,10 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <local:VideoSegmentView Segment="{Binding}" 
+                                              Title="{Binding Title}"
+                                              Subtitle="{Binding Subtitle}"
+                                              FreeTextItems="{Binding FreeTextItems}"
+                                              ProjectConfig="{Binding DataContext.ProjectConfig.Value, RelativeSource={RelativeSource AncestorType=local:FilmStripView}}"
                                               HorizontalAlignment="Stretch"
                                               Margin="0,0,0,2" />
                     </DataTemplate>

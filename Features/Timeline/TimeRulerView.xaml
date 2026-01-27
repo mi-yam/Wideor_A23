@@ -10,15 +10,15 @@
         <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
     </UserControl.DataContext>
 
-    <Border Background="#1E1E1E"
-            BorderBrush="#444444"
+    <Border Background="{DynamicResource HeaderBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="0,0,1,0">
         <ScrollViewer x:Name="TimeRulerScrollViewer"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Background="Transparent">
             <Canvas x:Name="RulerCanvas"
-                    Background="#1E1E1E"
+                    Background="{DynamicResource HeaderBackgroundBrush}"
                     ClipToBounds="True">
                 <!-- 時間目盛りはコードビハインドで描画 -->
             </Canvas>

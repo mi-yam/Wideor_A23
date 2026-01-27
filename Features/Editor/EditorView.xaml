@@ -11,15 +11,14 @@
         <Binding RelativeSource="{RelativeSource Self}" Path="ViewModel" />
     </UserControl.DataContext>
 
-  <Grid Background="#111111">
-        <!-- AvalonEdit -->
+  <Grid Background="{DynamicResource ContentBackgroundBrush}">
+        <!-- AvalonEdit（ライトモード: 白背景・黒文字、ダークモード: 暗い背景・明るい文字） -->
         <avalon:TextEditor x:Name="TextEditorControl"
-                          FontFamily="Consolas"
-                          FontSize="16"
+                          FontFamily="Meiryo UI"
+                          FontSize="14"
                           ShowLineNumbers="True"
-                          SyntaxHighlighting="C#"
-                          Background="#111111"
-                          Foreground="#E0E0E0"
-                          LineNumbersForeground="#888888" />
+                          Background="{DynamicResource ContentBackgroundBrush}"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          LineNumbersForeground="{DynamicResource TertiaryTextBrush}" />
     </Grid>
 </UserControl>
