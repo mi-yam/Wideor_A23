@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Reactive.Bindings;
@@ -45,6 +46,9 @@ namespace Wideor_A23
 
             // LibVLCの初期化（VideoEngineの前に実行）
             LibVLCSharp.Shared.Core.Initialize();
+
+            // FFmpegの初期化（バックグラウンドでダウンロード）
+            _ = InitializeFFmpegAsync();
 
             // DIコンテナのセットアップ
             var services = new ServiceCollection();
@@ -126,6 +130,12 @@ namespace Wideor_A23
             // ICommandExecutor
             services.AddSingleton<ICommandExecutor, Wideor.App.Shared.Infra.CommandExecutor>();
 
+            // IVideoExporter（FFmpegを使用した動画書き出し）
+            services.AddSingleton<IVideoExporter, Wideor.App.Shared.Infra.VideoExporter>();
+
+            // IProjectFileService（テキスト形式の.wideorファイル処理）
+            services.AddSingleton<IProjectFileService, Wideor.App.Shared.Infra.ProjectFileService>();
+
             // --- Feature ViewModels ---
             // 注: ViewModelは通常、Viewごとに新しいインスタンスが必要なためTransientまたはScoped
             // ただし、ShellViewModelが所有するため、ここでは登録しない
@@ -142,9 +152,57 @@ namespace Wideor_A23
                 var commandExecutor = sp.GetRequiredService<ICommandExecutor>();
                 var commandParser = sp.GetRequiredService<ICommandParser>();
                 var thumbnailCache = sp.GetRequiredService<IThumbnailCache>();
-                return new ShellViewModel(projectContext, scrollCoordinator, timeRulerService, videoEngine, segmentManager, commandExecutor, commandParser, thumbnailCache);
+                var videoExporter = sp.GetRequiredService<IVideoExporter>();
+                var projectFileService = sp.GetRequiredService<IProjectFileService>();
+                return new ShellViewModel(
+                    projectContext, 
+                    scrollCoordinator, 
+                    timeRulerService, 
+                    videoEngine, 
+                    segmentManager, 
+                    commandExecutor, 
+                    commandParser, 
+                    thumbnailCache,
+                    videoExporter,
+                    projectFileService);
             });
             services.AddTransient<ShellWindow>();
+        }
+
+        /// <summary>
+        /// FFmpegの初期化（バックグラウンドでダウンロード）
+        /// </summary>
+        private async Task InitializeFFmpegAsync()
+        {
+            try
+            {
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "App.xaml.cs:InitializeFFmpegAsync",
+                    "Starting FFmpeg initialization",
+                    null);
+
+                var progress = new Progress<Wideor.App.Shared.Infra.FFmpegDownloadProgress>(p =>
+                {
+                    Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                        "App.xaml.cs:InitializeFFmpegAsync",
+                        "FFmpeg download progress",
+                        new { stage = p.Stage.ToString(), message = p.Message, progress = p.Progress });
+                });
+
+                var result = await Wideor.App.Shared.Infra.FFmpegManager.InitializeAsync(progress);
+
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "App.xaml.cs:InitializeFFmpegAsync",
+                    "FFmpeg initialization completed",
+                    new { success = result, isAvailable = Wideor.App.Shared.Infra.FFmpegManager.IsAvailable });
+            }
+            catch (Exception ex)
+            {
+                Wideor.App.Shared.Infra.LogHelper.WriteLog(
+                    "App.xaml.cs:InitializeFFmpegAsync",
+                    "FFmpeg initialization failed",
+                    new { error = ex.Message, stackTrace = ex.StackTrace });
+            }
         }
 
         protected override void OnExit(ExitEventArgs e)

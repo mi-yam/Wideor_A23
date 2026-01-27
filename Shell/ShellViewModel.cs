@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using Reactive.Bindings;
@@ -25,7 +26,10 @@ namespace Wideor.App.Shell
         private readonly IVideoEngine _videoEngine;
         private readonly IVideoSegmentManager _segmentManager;
         private readonly ICommandExecutor _commandExecutor;
+        private readonly IVideoExporter _videoExporter;
+        private readonly IProjectFileService _projectFileService;
         private readonly CompositeDisposable _disposables = new();
+        private CancellationTokenSource? _exportCancellation;
 
         // --- Feature ViewModels ---
 
@@ -193,13 +197,17 @@ namespace Wideor.App.Shell
             IVideoSegmentManager segmentManager,
             ICommandExecutor commandExecutor,
             ICommandParser commandParser,
-            IThumbnailCache? thumbnailCache = null)
+            IThumbnailCache? thumbnailCache = null,
+            IVideoExporter? videoExporter = null,
+            IProjectFileService? projectFileService = null)
         {
             _projectContext = projectContext ?? throw new ArgumentNullException(nameof(projectContext));
             _thumbnailCache = thumbnailCache;
             _videoEngine = videoEngine ?? throw new ArgumentNullException(nameof(videoEngine));
             _segmentManager = segmentManager ?? throw new ArgumentNullException(nameof(segmentManager));
             _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
+            _videoExporter = videoExporter ?? new VideoExporter();
+            _projectFileService = projectFileService ?? new ProjectFileService();
 
             IsInitialized = _isInitialized.ToReadOnlyReactiveProperty(false)
                 .AddTo(_disposables);
@@ -265,15 +273,26 @@ namespace Wideor.App.Shell
             OpenProjectCommand = new ReactiveCommand()
                 .WithSubscribe(async () =>
                 {
-                    // #region agent log
-                    try
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:OpenProjectCommand",
+                        "OpenProjectCommand executed",
+                        null);
+
+                    // 未保存の変更がある場合は確認
+                    if (_projectContext.IsDirty.Value && _projectContext.IsProjectLoaded.Value)
                     {
-                        System.IO.File.AppendAllText(
-                            @".cursor\debug.log",
-                            $"{{\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()},\"location\":\"ShellViewModel.cs:166\",\"message\":\"OpenProjectCommand executed\",\"data\":{{\"command\":\"OpenProject\"}}}}\n");
+                        var result = System.Windows.MessageBox.Show(
+                            "未保存の変更があります。続行しますか？\n（変更は失われます）",
+                            "確認",
+                            System.Windows.MessageBoxButton.YesNo,
+                            System.Windows.MessageBoxImage.Question);
+                        
+                        if (result != System.Windows.MessageBoxResult.Yes)
+                        {
+                            return;
+                        }
                     }
-                    catch { }
-                    // #endregion
+
                     var dialog = new OpenFileDialog
                     {
                         Filter = "Wideorプロジェクト (*.wideor)|*.wideor|すべてのファイル (*.*)|*.*",
@@ -282,11 +301,68 @@ namespace Wideor.App.Shell
 
                     if (dialog.ShowDialog() == true)
                     {
-                        var success = await _projectContext.LoadProjectAsync(dialog.FileName);
-                        if (!success)
+                        try
                         {
+                            // テキストベースの.wideorファイルを読み込む
+                            var projectData = await _projectFileService.LoadAsync(dialog.FileName);
+                            if (projectData == null)
+                            {
+                                System.Windows.MessageBox.Show(
+                                    "プロジェクトファイルの読み込みに失敗しました。",
+                                    "エラー",
+                                    System.Windows.MessageBoxButton.OK,
+                                    System.Windows.MessageBoxImage.Error);
+                                return;
+                            }
+
+                            // プロジェクトコンテキストを初期化
+                            _projectContext.CreateNewProject();
+
+                            // テキストエリアに内容を設定
+                            EditorViewModel.Text.Value = projectData.TextContent;
+
+                            // プロジェクト設定を適用
+                            EditorViewModel.ProjectConfig.Value = projectData.Config;
+
+                            // 動画ファイルが指定されている場合は読み込む
+                            if (!string.IsNullOrEmpty(projectData.VideoFilePath) && 
+                                System.IO.File.Exists(projectData.VideoFilePath))
+                            {
+                                TimelineViewModel.VideoFilePath.Value = projectData.VideoFilePath;
+                                
+                                var loadSuccess = await _videoEngine.LoadAsync(
+                                    projectData.VideoFilePath, 
+                                    CancellationToken.None);
+                                
+                                if (loadSuccess)
+                                {
+                                    // TotalDurationを取得
+                                    await Task.Delay(500); // 動画の読み込みを待機
+                                    TimelineViewModel.TotalDuration.Value = PlayerViewModel.TotalDuration.Value;
+                                    TimelineViewModel.SetCurrentLoadedVideoPath(projectData.VideoFilePath);
+                                }
+                            }
+
+                            LogHelper.WriteLog(
+                                "ShellViewModel.cs:OpenProjectCommand",
+                                "Project loaded successfully",
+                                new { filePath = dialog.FileName, videoFilePath = projectData.VideoFilePath });
+
                             System.Windows.MessageBox.Show(
-                                "プロジェクトの読み込みに失敗しました。\nエラー一覧を確認してください。",
+                                "プロジェクトを読み込みました。",
+                                "完了",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Information);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogHelper.WriteLog(
+                                "ShellViewModel.cs:OpenProjectCommand",
+                                "Failed to load project",
+                                new { error = ex.Message });
+
+                            System.Windows.MessageBox.Show(
+                                $"プロジェクトの読み込みに失敗しました。\n{ex.Message}",
                                 "エラー",
                                 System.Windows.MessageBoxButton.OK,
                                 System.Windows.MessageBoxImage.Error);
@@ -300,56 +376,28 @@ namespace Wideor.App.Shell
                 .ToReactiveCommand()
                 .WithSubscribe(async () =>
                 {
+                    // 現在のプロジェクトファイルパスを取得
+                    var currentFilePath = _projectContext.ProjectFilePath.Value;
+
                     // プロジェクトファイルパスがない場合は「名前を付けて保存」を促す
-                    if (string.IsNullOrWhiteSpace(_projectContext.ProjectFilePath.Value))
+                    if (string.IsNullOrWhiteSpace(currentFilePath))
                     {
                         var dialog = new SaveFileDialog
                         {
                             Filter = "Wideorプロジェクト (*.wideor)|*.wideor|すべてのファイル (*.*)|*.*",
                             Title = "名前を付けて保存",
-                            DefaultExt = "wideor"
+                            DefaultExt = "wideor",
+                            FileName = EditorViewModel.ProjectConfig.Value.ProjectName
                         };
 
                         if (dialog.ShowDialog() == true)
                         {
-                            var success = await _projectContext.SaveProjectAsync(dialog.FileName);
-                            if (!success)
-                            {
-                                System.Windows.MessageBox.Show(
-                                    "プロジェクトの保存に失敗しました。\nエラー一覧を確認してください。",
-                                    "エラー",
-                                    System.Windows.MessageBoxButton.OK,
-                                    System.Windows.MessageBoxImage.Error);
-                            }
-                            else
-                            {
-                                System.Windows.MessageBox.Show(
-                                    "プロジェクトを保存しました。",
-                                    "保存完了",
-                                    System.Windows.MessageBoxButton.OK,
-                                    System.Windows.MessageBoxImage.Information);
-                            }
+                            await SaveProjectToFileAsync(dialog.FileName);
                         }
                     }
                     else
                     {
-                        var success = await _projectContext.SaveProjectAsync();
-                        if (!success)
-                        {
-                            System.Windows.MessageBox.Show(
-                                "プロジェクトの保存に失敗しました。\nエラー一覧を確認してください。",
-                                "エラー",
-                                System.Windows.MessageBoxButton.OK,
-                                System.Windows.MessageBoxImage.Error);
-                        }
-                        else
-                        {
-                            System.Windows.MessageBox.Show(
-                                "プロジェクトを保存しました。",
-                                "保存完了",
-                                System.Windows.MessageBoxButton.OK,
-                                System.Windows.MessageBoxImage.Information);
-                        }
+                        await SaveProjectToFileAsync(currentFilePath);
                     }
                 })
                 .AddTo(_disposables);
@@ -361,28 +409,13 @@ namespace Wideor.App.Shell
                     {
                         Filter = "Wideorプロジェクト (*.wideor)|*.wideor|すべてのファイル (*.*)|*.*",
                         Title = "名前を付けて保存",
-                        DefaultExt = "wideor"
+                        DefaultExt = "wideor",
+                        FileName = EditorViewModel.ProjectConfig.Value.ProjectName
                     };
 
                     if (dialog.ShowDialog() == true)
                     {
-                        var success = await _projectContext.SaveProjectAsync(dialog.FileName);
-                        if (!success)
-                        {
-                            System.Windows.MessageBox.Show(
-                                "プロジェクトの保存に失敗しました。\nエラー一覧を確認してください。",
-                                "エラー",
-                                System.Windows.MessageBoxButton.OK,
-                                System.Windows.MessageBoxImage.Error);
-                        }
-                        else
-                        {
-                            System.Windows.MessageBox.Show(
-                                "プロジェクトを保存しました。",
-                                "保存完了",
-                                System.Windows.MessageBoxButton.OK,
-                                System.Windows.MessageBoxImage.Information);
-                        }
+                        await SaveProjectToFileAsync(dialog.FileName);
                     }
                 })
                 .AddTo(_disposables);
@@ -540,9 +573,198 @@ namespace Wideor.App.Shell
                 .AddTo(_disposables);
 
             ExportVideoCommand = new ReactiveCommand()
-                .WithSubscribe(() =>
+                .WithSubscribe(async () =>
                 {
-                    // TODO: 動画書き出し処理
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:ExportVideoCommand",
+                        "ExportVideoCommand executed",
+                        null);
+
+                    // 動画セグメントがあるか確認
+                    var segments = TimelineViewModel.VideoSegments;
+                    if (segments == null || segments.Count == 0)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "エクスポートする動画セグメントがありません。\n動画を読み込んでください。",
+                            "情報",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    // FFmpegの利用可能性を確認（自動ダウンロード）
+                    if (!FFmpegManager.IsAvailable)
+                    {
+                        var downloadResult = System.Windows.MessageBox.Show(
+                            "FFmpegが見つかりません。\n自動的にダウンロードしますか？\n（約100MBのダウンロードが必要です）",
+                            "FFmpegのダウンロード",
+                            System.Windows.MessageBoxButton.YesNo,
+                            System.Windows.MessageBoxImage.Question);
+
+                        if (downloadResult != System.Windows.MessageBoxResult.Yes)
+                        {
+                            return;
+                        }
+
+                        // FFmpegをダウンロード
+                        var downloadProgressWindow = new FFmpegDownloadWindow();
+                        downloadProgressWindow.Owner = System.Windows.Application.Current.MainWindow;
+                        downloadProgressWindow.Show();
+
+                        var downloadProgress = new Progress<FFmpegDownloadProgress>(p =>
+                        {
+                            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                            {
+                                downloadProgressWindow.UpdateProgress(p);
+                            });
+                        });
+
+                        var ffmpegReady = await FFmpegManager.InitializeAsync(downloadProgress);
+                        downloadProgressWindow.Close();
+
+                        if (!ffmpegReady)
+                        {
+                            System.Windows.MessageBox.Show(
+                                "FFmpegのダウンロードに失敗しました。\nインターネット接続を確認してください。",
+                                "エラー",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Error);
+                            return;
+                        }
+                    }
+
+                    // 保存先を選択
+                    var dialog = new SaveFileDialog
+                    {
+                        Filter = "MP4動画 (*.mp4)|*.mp4|すべてのファイル (*.*)|*.*",
+                        Title = "動画を書き出す",
+                        DefaultExt = "mp4",
+                        FileName = EditorViewModel.ProjectConfig.Value.ProjectName
+                    };
+
+                    if (dialog.ShowDialog() != true)
+                    {
+                        return;
+                    }
+
+                    var outputPath = dialog.FileName;
+
+                    // エクスポート処理を実行
+                    _exportCancellation?.Cancel();
+                    _exportCancellation = new CancellationTokenSource();
+
+                    try
+                    {
+                        // 進捗ダイアログを表示
+                        var progressWindow = new ExportProgressWindow();
+                        progressWindow.Owner = System.Windows.Application.Current.MainWindow;
+                        progressWindow.CancelRequested += () =>
+                        {
+                            _exportCancellation?.Cancel();
+                        };
+                        progressWindow.Show();
+
+                        // シーンブロックを取得
+                        var sceneBlocks = _projectContext.SceneBlocks.Value?.ToList() 
+                            ?? new System.Collections.Generic.List<SceneBlock>();
+
+                        // プロジェクト設定を取得
+                        var config = EditorViewModel.ProjectConfig.Value;
+
+                        // 進捗報告用のコールバック
+                        var progress = new Progress<ExportProgress>(p =>
+                        {
+                            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                            {
+                                progressWindow.UpdateProgress(p);
+                            });
+                        });
+
+                        LogHelper.WriteLog(
+                            "ShellViewModel.cs:ExportVideoCommand",
+                            "Starting export",
+                            new { 
+                                outputPath = outputPath, 
+                                segmentCount = segments.Count, 
+                                sceneBlockCount = sceneBlocks.Count,
+                                sceneBlockDetails = sceneBlocks.Select(sb => new { 
+                                    id = sb.Id, 
+                                    startTime = sb.StartTime, 
+                                    endTime = sb.EndTime,
+                                    title = sb.Title, 
+                                    subtitle = sb.Subtitle,
+                                    freeTextCount = sb.FreeTextItems?.Count ?? 0
+                                }).ToList()
+                            });
+
+                        // エクスポート実行
+                        var success = await _videoExporter.ExportAsync(
+                            segments.ToList(),
+                            sceneBlocks,
+                            config,
+                            outputPath,
+                            progress,
+                            _exportCancellation.Token);
+
+                        progressWindow.Close();
+
+                        if (success)
+                        {
+                            LogHelper.WriteLog(
+                                "ShellViewModel.cs:ExportVideoCommand",
+                                "Export completed successfully",
+                                new { outputPath = outputPath });
+
+                            var openResult = System.Windows.MessageBox.Show(
+                                $"動画を書き出しました。\n\n{outputPath}\n\n出力フォルダを開きますか？",
+                                "完了",
+                                System.Windows.MessageBoxButton.YesNo,
+                                System.Windows.MessageBoxImage.Information);
+
+                            if (openResult == System.Windows.MessageBoxResult.Yes)
+                            {
+                                // 出力フォルダを開く
+                                var folderPath = System.IO.Path.GetDirectoryName(outputPath);
+                                if (!string.IsNullOrEmpty(folderPath))
+                                {
+                                    System.Diagnostics.Process.Start("explorer.exe", folderPath);
+                                }
+                            }
+                        }
+                        else if (_exportCancellation.IsCancellationRequested)
+                        {
+                            System.Windows.MessageBox.Show(
+                                "動画の書き出しがキャンセルされました。",
+                                "キャンセル",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Information);
+                        }
+                        else
+                        {
+                            System.Windows.MessageBox.Show(
+                                "動画の書き出しに失敗しました。\nログを確認してください。",
+                                "エラー",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Error);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog(
+                            "ShellViewModel.cs:ExportVideoCommand",
+                            "Export failed with exception",
+                            new { error = ex.Message, stackTrace = ex.StackTrace });
+
+                        System.Windows.MessageBox.Show(
+                            $"動画の書き出しに失敗しました。\n{ex.Message}",
+                            "エラー",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                    }
+                    finally
+                    {
+                        _exportCancellation = null;
+                    }
                 })
                 .AddTo(_disposables);
 
@@ -631,13 +853,17 @@ namespace Wideor.App.Shell
                 })
                 .AddTo(_disposables);
 
+            // IsDarkModeの変更を監視してテーマを適用
+            // ToggleButtonのIsChecked TwoWayバインディングが値を自動で切り替えるため、
+            // ここでは値の変更を監視してApplyThemeを呼ぶだけでよい
+            IsDarkMode
+                .Subscribe(isDark => ApplyTheme(isDark))
+                .AddTo(_disposables);
+
+            // コマンドはログ出力のみ（値のトグルはToggleButtonのIsCheckedバインディングが行う）
             ToggleDarkModeCommand = new ReactiveCommand()
                 .WithSubscribe(() =>
                 {
-                    // ダークモードを切り替え
-                    IsDarkMode.Value = !IsDarkMode.Value;
-                    ApplyTheme(IsDarkMode.Value);
-                    
                     LogHelper.WriteLog(
                         "ShellViewModel.cs:ToggleDarkModeCommand",
                         "Dark mode toggled",
@@ -898,6 +1124,65 @@ namespace Wideor.App.Shell
 
             // 初期化処理を開始
             _ = InitializeAsync();
+        }
+
+        /// <summary>
+        /// プロジェクトをファイルに保存
+        /// </summary>
+        private async Task SaveProjectToFileAsync(string filePath)
+        {
+            try
+            {
+                // プロジェクトデータを作成
+                var projectData = new ProjectFileData
+                {
+                    Config = EditorViewModel.ProjectConfig.Value,
+                    TextContent = EditorViewModel.Text.Value ?? string.Empty,
+                    VideoFilePath = TimelineViewModel.VideoFilePath.Value,
+                    FilePath = filePath
+                };
+
+                // ファイルに保存
+                var success = await _projectFileService.SaveAsync(filePath, projectData);
+                
+                if (success)
+                {
+                    // ProjectContextにファイルパスを記録（IsDirtyをfalseにするため）
+                    await _projectContext.SaveProjectAsync(filePath);
+
+                    LogHelper.WriteLog(
+                        "ShellViewModel.cs:SaveProjectToFileAsync",
+                        "Project saved successfully",
+                        new { filePath = filePath });
+
+                    System.Windows.MessageBox.Show(
+                        "プロジェクトを保存しました。",
+                        "保存完了",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Information);
+                }
+                else
+                {
+                    System.Windows.MessageBox.Show(
+                        "プロジェクトの保存に失敗しました。",
+                        "エラー",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog(
+                    "ShellViewModel.cs:SaveProjectToFileAsync",
+                    "Failed to save project",
+                    new { filePath = filePath, error = ex.Message });
+
+                System.Windows.MessageBox.Show(
+                    $"プロジェクトの保存に失敗しました。\n{ex.Message}",
+                    "エラー",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
         }
 
         /// <summary>

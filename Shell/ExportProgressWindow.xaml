@@ -1,0 +1,70 @@
+<Window x:Class="Wideor.App.Shell.ExportProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="動画を書き出し中..."
+        Width="450"
+        Height="250"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- ステータスメッセージ -->
+        <TextBlock x:Name="StatusText"
+                   Grid.Row="0"
+                   Text="準備中..."
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,15"/>
+        
+        <!-- プログレスバー -->
+        <ProgressBar x:Name="ProgressBar"
+                     Grid.Row="1"
+                     Height="25"
+                     Minimum="0"
+                     Maximum="100"
+                     Value="0"
+                     Margin="0,0,0,10"/>
+        
+        <!-- パーセント表示 -->
+        <TextBlock x:Name="PercentText"
+                   Grid.Row="2"
+                   Text="0%"
+                   HorizontalAlignment="Center"
+                   Margin="0,0,0,10"/>
+        
+        <!-- 詳細情報 -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,10">
+            <TextBlock x:Name="SegmentText"
+                       Text="セグメント: 0 / 0"
+                       Foreground="Gray"/>
+            <TextBlock x:Name="ElapsedText"
+                       Text="経過時間: 00:00:00"
+                       Foreground="Gray"/>
+            <TextBlock x:Name="RemainingText"
+                       Text="残り時間: 計算中..."
+                       Foreground="Gray"/>
+        </StackPanel>
+        
+        <!-- キャンセルボタン -->
+        <Button x:Name="CancelButton"
+                Grid.Row="5"
+                Content="キャンセル"
+                Width="100"
+                Height="30"
+                HorizontalAlignment="Center"
+                Click="CancelButton_Click"/>
+    </Grid>
+</Window>
